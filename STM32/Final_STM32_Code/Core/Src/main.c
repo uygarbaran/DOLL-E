@@ -237,8 +237,25 @@ HAL_StatusTypeDef USART_State = HAL_ERROR;
 
 void delay_in_us(uint16_t time)
 {
-	__HAL_TIM_SET_COUNTER(&htim14, 0);
-	while (__HAL_TIM_GET_COUNTER(&htim14) < time);
+	TIM_HandleTypeDef *htim = NULL;
+
+#if HCSR5_EN
+	htim = &HCSR5_timer_handler;
+#elif HCSR4_EN
+	htim = &HCSR4_timer_handler;
+#elif HCSR3_EN
+	htim = &HCSR3_timer_handler;
+#elif HCSR2_EN
+	htim = &HCSR2_timer_handler;
+#elif HCSR1_EN
+	htim = &HCSR1_timer_handler;
+#endif
+
+	if (htim != NULL)
+	{
+		__HAL_TIM_SET_COUNTER(htim, 0);
+		while (__HAL_TIM_GET_COUNTER(htim) < time);
+	}
 }
 
 /*********************************************************************************
