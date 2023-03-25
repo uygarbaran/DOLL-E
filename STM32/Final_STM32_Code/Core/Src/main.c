@@ -248,29 +248,44 @@ void delay_in_us(uint16_t time)
 void HAL_TIM_IC_CaptureCallback(TIM_HandleTypeDef *htim)
 {
 #if HCSR1_EN
-	HCSR_INPUT_HANDLE(htim, HCSR1_TIMER_ADDRESS, HCSR1_TIMER_CHANNEL, HCSR1_TIM_IT_CC,
-			          Is_First_Captured_1, IC_VAL1_HCSR1, IC_VAL2_HCSR1, Difference_1,
-					  HCSR_Distance_1);
+	if (htim->Channel == HAL_TIM_ACTIVE_CHANNEL_1) // Timer 1 channel 1
+	{
+		HCSR_INPUT_HANDLE(htim, HCSR1_TIMER_ADDRESS, HCSR1_TIMER_CHANNEL, HCSR1_TIM_IT_CC,
+					      Is_First_Captured_1, IC_VAL1_HCSR1, IC_VAL2_HCSR1, Difference_1,
+					      HCSR_Distance_1);
+	}
 #endif
 #if HCSR2_EN
-	HCSR_INPUT_HANDLE(htim, HCSR2_TIMER_ADDRESS, HCSR2_TIMER_CHANNEL, HCSR2_TIM_IT_CC,
-			          Is_First_Captured_2, IC_VAL1_HCSR2, IC_VAL2_HCSR2, Difference_2,
-					  HCSR_Distance_2);
+	if (htim->Channel == HAL_TIM_ACTIVE_CHANNEL_1) // Timer 2 channel 1
+	{
+		HCSR_INPUT_HANDLE(htim, HCSR2_TIMER_ADDRESS, HCSR2_TIMER_CHANNEL, HCSR2_TIM_IT_CC,
+						  Is_First_Captured_2, IC_VAL1_HCSR2, IC_VAL2_HCSR2, Difference_2,
+						  HCSR_Distance_2);
+	}
 #endif
 #if HCSR3_EN
-	HCSR_INPUT_HANDLE(htim, HCSR3_TIMER_ADDRESS, HCSR3_TIMER_CHANNEL, HCSR3_TIM_IT_CC,
-			          Is_First_Captured_3, IC_VAL1_HCSR3, IC_VAL2_HCSR3, Difference_3,
-					  HCSR_Distance_3);
+	if (htim->Channel == HAL_TIM_ACTIVE_CHANNEL_2) // Timer 2 channel 2
+	{
+		HCSR_INPUT_HANDLE(htim, HCSR3_TIMER_ADDRESS, HCSR3_TIMER_CHANNEL, HCSR3_TIM_IT_CC,
+						  Is_First_Captured_3, IC_VAL1_HCSR3, IC_VAL2_HCSR3, Difference_3,
+						  HCSR_Distance_3);
+	}
 #endif
 #if HCSR4_EN
-	HCSR_INPUT_HANDLE(htim, HCSR4_TIMER_ADDRESS, HCSR4_TIMER_CHANNEL, HCSR4_TIM_IT_CC,
-			          Is_First_Captured_4, IC_VAL1_HCSR4, IC_VAL2_HCSR4, Difference_4,
-					  HCSR_Distance_4);
+	if (htim->Channel == HAL_TIM_ACTIVE_CHANNEL_1) // Timer 14 channel 1
+	{
+		HCSR_INPUT_HANDLE(htim, HCSR4_TIMER_ADDRESS, HCSR4_TIMER_CHANNEL, HCSR4_TIM_IT_CC,
+						  Is_First_Captured_4, IC_VAL1_HCSR4, IC_VAL2_HCSR4, Difference_4,
+						  HCSR_Distance_4);
+	}
 #endif
 #if HCSR5_EN
-	HCSR_INPUT_HANDLE(htim, HCSR5_TIMER_ADDRESS, HCSR5_TIMER_CHANNEL, HCSR5_TIM_IT_CC,
-			          Is_First_Captured_5, IC_VAL1_HCSR5, IC_VAL2_HCSR5, Difference_5,
-					  HCSR_Distance_5);
+	if (htim->Channel == HAL_TIM_ACTIVE_CHANNEL_1) // Timer 17 channel 1
+	{
+		HCSR_INPUT_HANDLE(htim, HCSR5_TIMER_ADDRESS, HCSR5_TIMER_CHANNEL, HCSR5_TIM_IT_CC,
+						  Is_First_Captured_5, IC_VAL1_HCSR5, IC_VAL2_HCSR5, Difference_5,
+						  HCSR_Distance_5);
+	}
 #endif
 }
 
