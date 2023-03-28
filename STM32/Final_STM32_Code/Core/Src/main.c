@@ -83,26 +83,31 @@ static void MX_TIM3_Init(void);
 #define HCSR1_TIMER_CHANNEL		TIM_CHANNEL_1
 #define HCSR1_TIM_IT_CC			TIM_IT_CC1		// Timer Capture Compare 1 Interrupt
 #define HCSR1_TIMER_ADDRESS		TIM1			// Base Address of HCSR1's Timer
+#define HCSR1_ACTIVE_CHANNEL	HAL_TIM_ACTIVE_CHANNEL_1
 
 #define HCSR2_timer_handler		htim2
 #define HCSR2_TIMER_CHANNEL		TIM_CHANNEL_1
 #define HCSR2_TIM_IT_CC			TIM_IT_CC1
 #define HCSR2_TIMER_ADDRESS		TIM2
+#define HCSR2_ACTIVE_CHANNEL	HAL_TIM_ACTIVE_CHANNEL_1
 
 #define HCSR3_timer_handler		htim2
 #define HCSR3_TIMER_CHANNEL		TIM_CHANNEL_2
 #define HCSR3_TIM_IT_CC			TIM_IT_CC2
 #define HCSR3_TIMER_ADDRESS		TIM2
+#define HCSR3_ACTIVE_CHANNEL	HAL_TIM_ACTIVE_CHANNEL_2
 
 #define HCSR4_timer_handler		htim14
 #define HCSR4_TIMER_CHANNEL		TIM_CHANNEL_1
 #define HCSR4_TIM_IT_CC			TIM_IT_CC1
 #define HCSR4_TIMER_ADDRESS		TIM14
+#define HCSR4_ACTIVE_CHANNEL	HAL_TIM_ACTIVE_CHANNEL_1
 
 #define HCSR5_timer_handler		htim17
 #define HCSR5_TIMER_CHANNEL		TIM_CHANNEL_1
 #define HCSR5_TIM_IT_CC			TIM_IT_CC1
 #define HCSR5_TIMER_ADDRESS		TIM17
+#define HCSR5_ACTIVE_CHANNEL	HAL_TIM_ACTIVE_CHANNEL_1
 
 // HC-SR04 Enables (change to 0 to disable. Else, 1.)
 #define HCSR1_EN	1
@@ -139,6 +144,13 @@ static void MX_TIM3_Init(void);
 // AoA USART defines
 #define AOA_USART_NUM_BYTES 2 // Change to 3 if adding AoA distance into USART
 #define aoa_buffer			rx
+
+// Motor Controller PWM defines
+#define FRICTION_OFFSET		0	// Right motor has different friction than the left one. This accounts for that.
+#define MAX_MOTOR_SPEED_USED	200 	// This is the maximum motor speed we want to reach. More than this could be too fast.
+
+#define ABS(_ang_) ((_ang_) < 0 ? -(_ang_) : (_ang_))
+#define ANGLE_TO_SPEED(__angle__) (MAX_MOTOR_SPEED_USED - ((int32_t)(ABS(__angle__))))
 
 /*********************************************************************************
 								Global Variables
@@ -204,31 +216,31 @@ HAL_StatusTypeDef USART_State = HAL_ERROR;
 /*********************************************************************************
 								Macro Functions Begin
 **********************************************************************************/
-#define HCSR_INPUT_HANDLE(_htim, _HCSR_TIMER_ADDRESS, _HCSR_TIMER_CHANNEL, _HCSR_TIM_IT_CC, _Is_First_Captured, _IC_VAL1_HCSR, _IC_VAL2_HCSR, _Difference, _HCSR_Distance) \
-		if (_htim->Instance == _HCSR_TIMER_ADDRESS) { \
-				if (_Is_First_Captured == 0) { \
+#define HCSR_INPUT_HANDLE(_htim, _HCSR_TIMER_ADDRESS, _HCSR_ACTIVE_CHANNEL, _HCSR_TIMER_CHANNEL, _HCSR_TIM_IT_CC, _Is_First_Captured, _IC_VAL1_HCSR, _IC_VAL2_HCSR, _Difference, _HCSR_Distance) \
+		if ((_htim)->Instance == (_HCSR_TIMER_ADDRESS) && (_htim)->Channel == (_HCSR_ACTIVE_CHANNEL)) { \
+				if ((_Is_First_Captured) == 0) { \
 					/* Take the time stamp of when the rising edge occurs */ \
-					_IC_VAL1_HCSR = HAL_TIM_ReadCapturedValue(_htim, _HCSR_TIMER_CHANNEL); \
+					_IC_VAL1_HCSR = HAL_TIM_ReadCapturedValue((_htim), (_HCSR_TIMER_CHANNEL)); \
 					_Is_First_Captured = 1; /* set the first captured as true */ \
 					/* Now change the polarity to falling edge to be able to catch it when it happens */ \
-					__HAL_TIM_SET_CAPTUREPOLARITY(_htim, _HCSR_TIMER_CHANNEL, TIM_INPUTCHANNELPOLARITY_FALLING); \
+					__HAL_TIM_SET_CAPTUREPOLARITY((_htim), (_HCSR_TIMER_CHANNEL), TIM_INPUTCHANNELPOLARITY_FALLING); \
 				} \
-				else if (_Is_First_Captured == 1) { \
+				else if ((_Is_First_Captured) == 1) { \
 					/* Take the time stamp of when the falling edge occurs */ \
-					_IC_VAL2_HCSR = HAL_TIM_ReadCapturedValue(_htim, _HCSR_TIMER_CHANNEL); \
+					_IC_VAL2_HCSR = HAL_TIM_ReadCapturedValue((_htim), (_HCSR_TIMER_CHANNEL)); \
 		            /* __HAL_TIM_SET_COUNTER(htim, 0);  // reset the counter, kept here just in case */ \
-					if (_IC_VAL2_HCSR > _IC_VAL1_HCSR) { \
-						_Difference = _IC_VAL2_HCSR - _IC_VAL1_HCSR; \
+					if ((_IC_VAL2_HCSR) > (_IC_VAL1_HCSR)) { \
+						_Difference = (_IC_VAL2_HCSR) - (_IC_VAL1_HCSR); \
 					} \
-					else if (_IC_VAL1_HCSR > _IC_VAL2_HCSR) { \
-						_Difference = (0xffff - _IC_VAL1_HCSR) + _IC_VAL2_HCSR; \
+					else if ((_IC_VAL1_HCSR) > (_IC_VAL2_HCSR)) { \
+						_Difference = (0xffff - (_IC_VAL1_HCSR)) + (_IC_VAL2_HCSR); \
 					} \
-					_HCSR_Distance = _Difference * .034/2; \
+					_HCSR_Distance = (_Difference) * .034/2; \
 					_Is_First_Captured = 0; /* set it back to false */ \
 					/* set polarity to rising edge */ \
-					__HAL_TIM_SET_CAPTUREPOLARITY(_htim, _HCSR_TIMER_CHANNEL, TIM_INPUTCHANNELPOLARITY_RISING); \
+					__HAL_TIM_SET_CAPTUREPOLARITY((_htim), (_HCSR_TIMER_CHANNEL), TIM_INPUTCHANNELPOLARITY_RISING); \
 					/* Disable the interrupt after the distance calculation is done (or the noise can still pull the line up and down and cause interrupts) */ \
-					__HAL_TIM_DISABLE_IT(_htim, _HCSR_TIM_IT_CC); \
+					__HAL_TIM_DISABLE_IT((_htim), (_HCSR_TIM_IT_CC)); \
 				} \
 			}
 /*********************************************************************************
@@ -265,44 +277,29 @@ void delay_in_us(uint16_t time)
 void HAL_TIM_IC_CaptureCallback(TIM_HandleTypeDef *htim)
 {
 #if HCSR1_EN
-	if (htim->Channel == HAL_TIM_ACTIVE_CHANNEL_1) // Timer 1 channel 1
-	{
-		HCSR_INPUT_HANDLE(htim, HCSR1_TIMER_ADDRESS, HCSR1_TIMER_CHANNEL, HCSR1_TIM_IT_CC,
-					      Is_First_Captured_1, IC_VAL1_HCSR1, IC_VAL2_HCSR1, Difference_1,
-					      HCSR_Distance_1);
-	}
+	HCSR_INPUT_HANDLE(htim, HCSR1_TIMER_ADDRESS, HCSR1_ACTIVE_CHANNEL, HCSR1_TIMER_CHANNEL,
+					  HCSR1_TIM_IT_CC, Is_First_Captured_1, IC_VAL1_HCSR1, IC_VAL2_HCSR1,
+					  Difference_1, HCSR_Distance_1);
 #endif
 #if HCSR2_EN
-	if (htim->Channel == HAL_TIM_ACTIVE_CHANNEL_1) // Timer 2 channel 1
-	{
-		HCSR_INPUT_HANDLE(htim, HCSR2_TIMER_ADDRESS, HCSR2_TIMER_CHANNEL, HCSR2_TIM_IT_CC,
-						  Is_First_Captured_2, IC_VAL1_HCSR2, IC_VAL2_HCSR2, Difference_2,
-						  HCSR_Distance_2);
-	}
+	HCSR_INPUT_HANDLE(htim, HCSR2_TIMER_ADDRESS, HCSR2_ACTIVE_CHANNEL, HCSR2_TIMER_CHANNEL,
+					  HCSR2_TIM_IT_CC, Is_First_Captured_2, IC_VAL1_HCSR2, IC_VAL2_HCSR2,
+					  Difference_2, HCSR_Distance_2);
 #endif
 #if HCSR3_EN
-	if (htim->Channel == HAL_TIM_ACTIVE_CHANNEL_2) // Timer 2 channel 2
-	{
-		HCSR_INPUT_HANDLE(htim, HCSR3_TIMER_ADDRESS, HCSR3_TIMER_CHANNEL, HCSR3_TIM_IT_CC,
-						  Is_First_Captured_3, IC_VAL1_HCSR3, IC_VAL2_HCSR3, Difference_3,
-						  HCSR_Distance_3);
-	}
+	HCSR_INPUT_HANDLE(htim, HCSR3_TIMER_ADDRESS, HCSR3_ACTIVE_CHANNEL, HCSR3_TIMER_CHANNEL,
+					  HCSR3_TIM_IT_CC, Is_First_Captured_3, IC_VAL1_HCSR3, IC_VAL2_HCSR3,
+					  Difference_3, HCSR_Distance_3);
 #endif
 #if HCSR4_EN
-	if (htim->Channel == HAL_TIM_ACTIVE_CHANNEL_1) // Timer 14 channel 1
-	{
-		HCSR_INPUT_HANDLE(htim, HCSR4_TIMER_ADDRESS, HCSR4_TIMER_CHANNEL, HCSR4_TIM_IT_CC,
-						  Is_First_Captured_4, IC_VAL1_HCSR4, IC_VAL2_HCSR4, Difference_4,
-						  HCSR_Distance_4);
-	}
+	HCSR_INPUT_HANDLE(htim, HCSR4_TIMER_ADDRESS, HCSR4_ACTIVE_CHANNEL, HCSR4_TIMER_CHANNEL,
+					  HCSR4_TIM_IT_CC, Is_First_Captured_4, IC_VAL1_HCSR4, IC_VAL2_HCSR4,
+					  Difference_4, HCSR_Distance_4);
 #endif
 #if HCSR5_EN
-	if (htim->Channel == HAL_TIM_ACTIVE_CHANNEL_1) // Timer 17 channel 1
-	{
-		HCSR_INPUT_HANDLE(htim, HCSR5_TIMER_ADDRESS, HCSR5_TIMER_CHANNEL, HCSR5_TIM_IT_CC,
-						  Is_First_Captured_5, IC_VAL1_HCSR5, IC_VAL2_HCSR5, Difference_5,
-						  HCSR_Distance_5);
-	}
+	HCSR_INPUT_HANDLE(htim, HCSR5_TIMER_ADDRESS, HCSR5_ACTIVE_CHANNEL, HCSR5_TIMER_CHANNEL,
+					  HCSR5_TIM_IT_CC, Is_First_Captured_5, IC_VAL1_HCSR5, IC_VAL2_HCSR5,
+					  Difference_5, HCSR_Distance_5);
 #endif
 }
 
@@ -416,13 +413,13 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
 /*********************************************************************************
 					   Motor Controller Functions Begin
 **********************************************************************************/
-void speed(int l, int r) // range from -250 to 250
+void speed(int32_t l, int32_t r) // range from -250 to 250
 {
-	int set_l = (l) + 750;
+	uint32_t set_l = (l) + 750;
 	if (l == 0)
 		set_l = 0;
 
-	int set_r = (r) + 750;
+	uint32_t set_r = (r) + 750;
 	if (r == 0)
 		set_r = 0;
 
@@ -431,10 +428,10 @@ void speed(int l, int r) // range from -250 to 250
 }
 
 // Input: Left wheel absolute speed
-void turnLeft(int speed_val)
+void turnLeft(int32_t speed_val)
 {
-	// Less than 20 is there because the friction on the left wheel is more.
-	if (speed_val < 20 || speed_val > 250)
+	// Less than FRICTION_OFFSET is there because the friction on the left wheel is more.
+	if (speed_val < FRICTION_OFFSET || speed_val > 250)
 	{
 		speed(0, 0);
 		return;
@@ -444,14 +441,14 @@ void turnLeft(int speed_val)
 	turningRight = 0;
 	stopped = 0;
 	movingStraight = 0;
-	speed(-speed_val, speed_val - 20);
+	speed(-speed_val, speed_val - FRICTION_OFFSET);
 }
 
 // Input: Left wheel absolute speed (since left wheel has the larger absolute value at all times)
-void turnRight(int speed_val)
+void turnRight(int32_t speed_val)
 {
-	// Less than 20 is there because the friction on the left wheel is more.
-	if (speed_val < 20 || speed_val > 250)
+	// Less than FRICTION_OFFSET is there because the friction on the left wheel is more.
+	if (speed_val < FRICTION_OFFSET || speed_val > 250)
 	{
 		speed(0, 0);
 		return;
@@ -461,14 +458,14 @@ void turnRight(int speed_val)
 	turningLeft = 0;
 	stopped = 0;
 	movingStraight = 0;
-	speed(speed_val, -(speed_val - 20));
+	speed(speed_val, -(speed_val - FRICTION_OFFSET));
 }
 
 // Input: Left wheel absolute speed
-void goStraight(int speed_val)
+void goStraight(int32_t speed_val)
 {
-	// Less than 20 is there because the friction on the left wheel is more.
-	if (speed_val <= 20 || speed_val > 250)
+	// Less than FRICTION_OFFSET is there because the friction on the left wheel is more.
+	if (speed_val <= FRICTION_OFFSET || speed_val > 250)
 	{
 		speed(0, 0);
 		return;
@@ -478,7 +475,7 @@ void goStraight(int speed_val)
 	turningRight = 0;
 	stopped = 0;
 	movingStraight = 1;
-	speed(speed_val, speed_val - 5);
+	speed(speed_val, speed_val - FRICTION_OFFSET);
 }
 
 void turnDOLLE(void)
@@ -590,6 +587,10 @@ int main(void)
   USART_State = HAL_UART_Receive_IT(&huart1, aoa_buffer, AOA_USART_NUM_BYTES);
 #endif
 
+  // Snapshots for the volatile variables // DISABLED BECAUSE THE CODE DID NOT WORK WELL WITH THIS
+//  uint16_t dist1 = 0, dist2 = 0, dist3 = 0, dist4 = 0, dist5 = 0;
+//  int16_t angle_snapshot = 179, temp_angle_snapshot = 179;
+
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -608,11 +609,11 @@ int main(void)
 	  {
 		  if (ISLEFT(angle) && !turningLeft)
 		  {
-			  turnLeft(50);
+			  turnLeft(ANGLE_TO_SPEED(angle));
 		  }
 		  else if (ISRIGHT(angle) && !turningRight)
 		  {
-			  turnRight(50);
+			  turnRight(ANGLE_TO_SPEED(angle));
 		  }
 	  }
 	  else if (stop && !stopped)
@@ -628,7 +629,7 @@ int main(void)
 		  goStraight(50);
 	  }
 
-	  HAL_Delay(40); // Small delay to avoid sending commands to motors too frequently.
+	  HAL_Delay(30); // Small delay to avoid sending commands to motors too frequently.
 
 	  // ***** Rest of the while loop is error handling *****
 
