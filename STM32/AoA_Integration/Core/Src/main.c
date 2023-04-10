@@ -103,7 +103,8 @@ static void MX_TIM15_Init(void);
 #define TRIG5_PIN 	GPIO_PIN_0
 #define TRIG5_PORT 	GPIOB
 
-#define STOP_RANGE_HCSR  70 // if HC-SR04 sees 50cms or less, stop the motors
+#define STOP_RANGE_HCSR  70 // if HC-SR04 sees 50cms or less, stop DOLL-E from moving forward (turns are still allowed)
+#define STOP_RANGE_TURN  31 // If HC-SR04 sees this range or less, stops DOLL-E from turning left or right
 
 #define HCSR1_timer_handler		htim1
 #define HCSR1_TIMER_CHANNEL		TIM_CHANNEL_1
@@ -135,23 +136,27 @@ static void MX_TIM15_Init(void);
 #define HCSR2_EN	1
 
 // AoA thresholds
-#define LEFT_LIMIT 	-160 // If the tag is more left than this angle, turn
-#define RIGHT_LIMIT  160 // If the tag is more right than this angle, turn
+#define LEFT_LIMIT 	-155 // If the tag is more left than this angle, turn
+#define RIGHT_LIMIT  155 // If the tag is more right than this angle, turn
 #define STOP_RANGE_AOA 1 // If the tag is strictly less than 1 meter, then stop
 #define IS_VALID_ANGLE(_angle) (((_angle) >= -179) && ((_angle) <= 179))
 #define ISTURN(_angle) (((_angle) > LEFT_LIMIT) && ((_angle) < RIGHT_LIMIT))
 #define ISLEFT(_angle) (((_angle) > LEFT_LIMIT) && ((_angle) < 0))
 #define ISRIGHT(_angle) (((_angle) >= 0) && ((_angle) < RIGHT_LIMIT))
-#define ISSTOP(_hcsr_dist_1, _hcsr_dist_2, _hcsr_dist_3) (((_hcsr_dist_1) < STOP_RANGE_HCSR) || ((_hcsr_dist_2) < STOP_RANGE_HCSR) || ((_hcsr_dist_3) < STOP_RANGE_HCSR)) //|| ((_aoa_dist) < STOP_RANGE_AOA))
+//#define ISTURN(_angle) (((_angle) < LEFT_LIMIT) && ((_angle) > RIGHT_LIMIT))
+//#define ISLEFT(_angle) (((_angle) < LEFT_LIMIT) && ((_angle) > 0))
+//#define ISRIGHT(_angle) (((_angle) <= 0) && ((_angle) > RIGHT_LIMIT))
+#define ISSTOP(_hcsr_dist_1, _hcsr_dist_2, _hcsr_dist_3) (((_hcsr_dist_1) < STOP_RANGE_HCSR) || ((_hcsr_dist_2) < STOP_RANGE_HCSR) || ((_hcsr_dist_3) < STOP_RANGE_HCSR))
+#define IS_STOP_TURN(_hcsr_dist_1, _hcsr_dist_2, _hcsr_dist_3) (((_hcsr_dist_1) < STOP_RANGE_TURN) || ((_hcsr_dist_2) < STOP_RANGE_TURN) || ((_hcsr_dist_3) < STOP_RANGE_TURN))
 
 // AoA Error Handling (Important)
-#define ANGLE_SAMPLING_HALTED_COUNT 4 // If the angle is the same for 4 consecutive times in the super loop, assume that UART sampling is halted and request it again
+#define ANGLE_SAMPLING_HALTED_COUNT 8 // If the angle is the same for ANGLE_SAMPLING_HALTED_COUNT consecutive times in the super loop, assume that UART sampling is halted and request it again
 
 // AoA USART defines
 #define AOA_USART_NUM_BYTES 2 // Change to 3 if adding AoA distance into USART
 
 // Motor Controller PWM defines
-#define FRICTION_OFFSET			0		// Right motor has different friction than the left one. This accounts for that
+#define FRICTION_OFFSET			10		// Right motor has different friction than the left one. This accounts for that
 #define MAX_MOTOR_SPEED_USED	200 	// This is the maximum motor speed we want to reach. More than this could be too fast.
 
 #define ABS(_ang_) ((_ang_) < 0 ? -(_ang_) : (_ang_))
@@ -171,7 +176,8 @@ uint8_t movingStraight = 0;
 int16_t angle = 178; // Angle of asset tag (azimuth) relative to the antenna board
 uint8_t AOA_Distance = 1; // in meters
 uint8_t rx[AOA_USART_NUM_BYTES]; // Buffer to receive the angle and distance from Pi
-uint8_t stop = 1;
+uint8_t stop = 1; // Stop from moving forward
+uint8_t stopTurn = 1; // Stop from turning
 uint8_t turn = 0;
 uint8_t move = 0;
 uint8_t aoa_uart_received = 0;
@@ -508,10 +514,11 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
 		angle = 179;
 	}
 
-	// UNCOMMENT THIS LATER IF NEEDED!
-	//	USART_State = HAL_UART_Receive_IT(&huart1, rx, AOA_USART_NUM_BYTES);
+	// CALL UART IT BACK AGAIN IN CASE A NEW ANGLE COMES
+//    USART_State = HAL_UART_Receive_IT(&huart1, rx, AOA_USART_NUM_BYTES);
 
 	// TESTING CODE
+
 //	if (angle < -130 && angle > -140)
 //		HAL_GPIO_WritePin(GPIOA, GPIO_PIN_5, GPIO_PIN_SET);
 //	else
@@ -728,6 +735,7 @@ void reinitalize_USART1(void)
 }
 
 uint32_t time = 0;
+uint64_t wCounter = 0;
 /* USER CODE END 0 */
 
 /**
@@ -788,8 +796,8 @@ int main(void)
 
 
   // ********** PWM Start for Controlling the Motors **********
-//  HAL_TIM_PWM_Start(&htim3, TIM_CHANNEL_1); // Start the PWM for left motor
-//  HAL_TIM_PWM_Start(&htim3, TIM_CHANNEL_2); // Start the PWM for right motor
+  HAL_TIM_PWM_Start(&htim3, TIM_CHANNEL_1); // Start the PWM for left motor
+  HAL_TIM_PWM_Start(&htim3, TIM_CHANNEL_2); // Start the PWM for right motor
 
   // ********** UART Rx Interrupt Start for Receiving Angles from Raspberry Pi **********
 //  USART_State = HAL_UART_Receive_IT(&huart1, rx, AOA_USART_NUM_BYTES); // UYGAR_LOG: call the interrupt function for UART communication with Pi
@@ -828,32 +836,52 @@ int main(void)
   // Snapshots for the volatile variables
 //  uint16_t dist1 = 0, dist2 = 0, dist3 = 0, dist4 = 0, dist5 = 0;
 //  int16_t angle_snapshot = 179, temp_angle_snapshot = 179;
-//  speed(0, 0);
-//  HAL_Delay(5000);
-  uint32_t HCSR_block_timeout = 500;
+  speed(0, 0);
+  HAL_Delay(5000);
+  uint32_t HCSR_block_timeout = 75; // MAKE LARGER IF NEEDED
+  uint8_t hcsr_pick = 0;
   while (1)
   {
-	  USART_State = HAL_UART_Receive_IT(&huart1, rx, AOA_USART_NUM_BYTES);
+//	  hcsr_pick = (hcsr_pick + 1) % 3;
+//	  USART_State = HAL_UART_Receive_IT(&huart1, rx, AOA_USART_NUM_BYTES);
 
-	  // Sets the distance flag to 0. The flag will be set to 1 when HCSR_Distance_1 is calculated.
-	  HCSR04_Read();
-	  millis = HAL_GetTick(); // Get the time in milliseconds
-
-	  // While the flag is still 0 AND the timeout hasn't been reached, keep waiting for HCSR1 output.
-	  // We can do sleep mode instead of this (gotta watch out for UART interrupting it), but for now try with polling.
-	  while ((Distance1_flag == 0) && ((HAL_GetTick() - millis) <= HCSR_block_timeout)) {}
-//	  while (Distance1_flag == 0) {}
-	  time = HAL_GetTick() - millis;
-
-	  HCSR2_Read();
-	  millis = HAL_GetTick();
-	  while ((Distance2_flag == 0) && ((HAL_GetTick() - millis) <= HCSR_block_timeout)) {}
-	  time = HAL_GetTick() - millis;
-
-	  HCSR5_Read();
-	  millis = HAL_GetTick();
-	  while ((Distance5_flag == 0) && ((HAL_GetTick() - millis) <= HCSR_block_timeout)) {}
-	  time = HAL_GetTick() - millis;
+//	  if (hcsr_pick == 0)
+//	  {
+//		  HCSR04_Read();
+//		  millis = HAL_GetTick();
+//		  while ((Distance1_flag == 0) && ((HAL_GetTick() - millis) <= HCSR_block_timeout)) {}
+//	  }
+//	  else if (hcsr_pick == 1)
+//	  {
+//		  HCSR2_Read();
+//		  millis = HAL_GetTick();
+//		  while ((Distance2_flag == 0) && ((HAL_GetTick() - millis) <= HCSR_block_timeout)) {}
+//	  }
+//	  else
+////	  {
+////		  HCSR5_Read();
+////		  millis = HAL_GetTick();
+////		  while ((Distance5_flag == 0) && ((HAL_GetTick() - millis) <= HCSR_block_timeout)) {}
+////	  }
+//	  // Sets the distance flag to 0. The flag will be set to 1 when HCSR_Distance_1 is calculated.
+//	  HCSR04_Read();
+//	  millis = HAL_GetTick(); // Get the time in milliseconds
+//
+//	  // While the flag is still 0 AND the timeout hasn't been reached, keep waiting for HCSR1 output.
+//	  // We can do sleep mode instead of this (gotta watch out for UART interrupting it), but for now try with polling.
+//	  while ((Distance1_flag == 0) && ((HAL_GetTick() - millis) <= HCSR_block_timeout)) {}
+//////	  while (Distance1_flag == 0) {}
+//////	  time = HAL_GetTick() - millis;
+////
+//	  HCSR2_Read();
+//	  millis = HAL_GetTick();
+//	  while ((Distance2_flag == 0) && ((HAL_GetTick() - millis) <= HCSR_block_timeout)) {}
+//////	  time = HAL_GetTick() - millis;
+////
+//	  HCSR5_Read();
+//	  millis = HAL_GetTick();
+//	  while ((Distance5_flag == 0) && ((HAL_GetTick() - millis) <= HCSR_block_timeout)) {}
+////	  time = HAL_GetTick() - millis;
 
 //	  HAL_Delay(1000);
 
@@ -880,34 +908,66 @@ int main(void)
 //	  while (Distance5_flag == 0 && ((HAL_GetTick() - millis) <= HCSR_block_timeout)) {}
 ////	  while (Distance5_flag == 0) {}
 //	  time = HAL_GetTick() - millis;
-//
+	  USART_State = HAL_UART_Receive_IT(&huart1, rx, AOA_USART_NUM_BYTES);
+
+	  HCSR04_Read();
+	  millis = HAL_GetTick();
+	  while ((Distance1_flag == 0) && ((HAL_GetTick() - millis) <= HCSR_block_timeout)) {}
+
+	  HCSR2_Read();
+	  millis = HAL_GetTick();
+	  while ((Distance2_flag == 0) && ((HAL_GetTick() - millis) <= HCSR_block_timeout)) {}
+
+	  HCSR5_Read();
+	  millis = HAL_GetTick();
+	  while ((Distance5_flag == 0) && ((HAL_GetTick() - millis) <= HCSR_block_timeout)) {}
+
 	  // Update the state.
 	  stop = ISSTOP(HCSR_Distance_1, HCSR_Distance_2, HCSR_Distance_5);
+//	  stopTurn = IS_STOP_TURN(HCSR_Distance_1, HCSR_Distance_2, HCSR_Distance_5);
 	  turn = ISTURN(angle);
 
 	  // Interpret the results to send motor commands.
 	  if (turn)
 	  {
-		  if (ISLEFT(angle) && !turningLeft)
+//		  if (stopTurn)
+//		  {
+//		  if (!stopped)
+//		  {
+//			  speed(0, 0);
+//			  turningLeft = 0;
+//			  turningRight = 0;
+//			  stopped = 1;
+//			  movingStraight = 0;
+//		  }
+//		  }
+		  if (ISLEFT(angle) && !turningLeft) // if (ISLEFT(angle)  && !turningLeft)
 		  {
-			  turnLeft(ANGLE_TO_SPEED(angle));
+			   turnLeft(50);
+//			  turnLeft(ANGLE_TO_SPEED(angle));
 		  }
-		  else if (ISRIGHT(angle) && !turningRight)
+		  else if (ISRIGHT(angle) && !turningRight) // else if (ISRIGHT(angle) && !turningRight)
 		  {
-			  turnRight(ANGLE_TO_SPEED(angle));
+			   turnRight(50);
+
+//			  turnRight(ANGLE_TO_SPEED(angle));
 		  }
 	  }
-	  else if (stop && !stopped)
+	  else if (stop)
 	  {
-		  speed(0, 0);
-		  turningLeft = 0;
-		  turningRight = 0;
-		  stopped = 1;
-		  movingStraight = 0;
+		  if (!stopped)
+		  {
+			  speed(0, 0);
+			  turningLeft = 0;
+			  turningRight = 0;
+			  stopped = 1;
+			  movingStraight = 0;
+		  }
 	  }
-	  else if (!stop && !movingStraight)
+	  else if (!stop)
 	  {
-		  goStraight(50);
+		  if (!movingStraight)
+			  goStraight(80);
 	  }
 
 	  // FOR NOW, SINCE WE ARE WAITING WITH POLLING FOR DISTANCE SENSORS, DO NOT DO THIS.
@@ -931,7 +991,7 @@ int main(void)
 //	  prevAngle = angle; // Update previous angle value
 //
 //	  // If the angle has been the same value for a while, call the UART Receive interrupt again.
-//	  if (angleCounter >= ANGLE_SAMPLING_HALTED_COUNT)
+//	  if (angleCounter >= ANGLE_SAMPLING_HALTED_COUNT) // CURRENTLY 8, BRING IT DOWN IF NEEDED
 //	  {
 //		  USART_State = HAL_UART_Receive_IT(&huart1, rx, AOA_USART_NUM_BYTES);
 //	  }
@@ -949,7 +1009,7 @@ int main(void)
 
 
 
-
+//	  wCounter++;
 
 
 
