@@ -136,8 +136,8 @@ static void MX_TIM15_Init(void);
 #define HCSR2_EN	1
 
 // AoA thresholds
-#define LEFT_LIMIT 	-155 // If the tag is more left than this angle, turn
-#define RIGHT_LIMIT  155 // If the tag is more right than this angle, turn
+#define LEFT_LIMIT 	-160 // If the tag is more left than this angle, turn
+#define RIGHT_LIMIT  160 // If the tag is more right than this angle, turn
 #define STOP_RANGE_AOA 1 // If the tag is strictly less than 1 meter, then stop
 #define IS_VALID_ANGLE(_angle) (((_angle) >= -179) && ((_angle) <= 179))
 #define ISTURN(_angle) (((_angle) > LEFT_LIMIT) && ((_angle) < RIGHT_LIMIT))
@@ -150,13 +150,13 @@ static void MX_TIM15_Init(void);
 #define IS_STOP_TURN(_hcsr_dist_1, _hcsr_dist_2, _hcsr_dist_3) (((_hcsr_dist_1) < STOP_RANGE_TURN) || ((_hcsr_dist_2) < STOP_RANGE_TURN) || ((_hcsr_dist_3) < STOP_RANGE_TURN))
 
 // AoA Error Handling (Important)
-#define ANGLE_SAMPLING_HALTED_COUNT 8 // If the angle is the same for ANGLE_SAMPLING_HALTED_COUNT consecutive times in the super loop, assume that UART sampling is halted and request it again
+#define ANGLE_SAMPLING_HALTED_COUNT 4 // If the angle is the same for ANGLE_SAMPLING_HALTED_COUNT consecutive times in the super loop, assume that UART sampling is halted and request it again
 
 // AoA USART defines
 #define AOA_USART_NUM_BYTES 2 // Change to 3 if adding AoA distance into USART
 
 // Motor Controller PWM defines
-#define FRICTION_OFFSET			10		// Right motor has different friction than the left one. This accounts for that
+#define FRICTION_OFFSET			4		// Right motor has different friction than the left one. This accounts for that
 #define MAX_MOTOR_SPEED_USED	200 	// This is the maximum motor speed we want to reach. More than this could be too fast.
 
 #define ABS(_ang_) ((_ang_) < 0 ? -(_ang_) : (_ang_))
@@ -624,6 +624,7 @@ void speed(int32_t l, int32_t r) // range from -250 to 250
 	if (r == 0)
 		set_r = 0;
 
+	__HAL_TIM_SET_COUNTER(&htim3, 0);
 	__HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_1, set_l);
 	__HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_2, set_r);
 }
@@ -734,6 +735,68 @@ void reinitalize_USART1(void)
     USART_State = HAL_UART_Receive_IT(&huart1, rx, AOA_USART_NUM_BYTES);
 }
 
+void makeDecision()
+{
+	 // Update the state.
+	  stop = ISSTOP(HCSR_Distance_1, HCSR_Distance_2, HCSR_Distance_5);
+//	  stopTurn = IS_STOP_TURN(HCSR_Distance_1, HCSR_Distance_2, HCSR_Distance_5);
+	  turn = ISTURN(angle);
+
+	  // Interpret the results to send motor commands.
+	  if (turn)
+	  {
+//		  if (stopTurn)
+//		  {
+//		  if (!stopped)
+//		  {
+//			  speed(0, 0);
+//			  turningLeft = 0;
+//			  turningRight = 0;
+//			  stopped = 1;
+//			  movingStraight = 0;
+//		  }
+//		  }
+		  if (ISLEFT(angle) && !turningLeft) // if (ISLEFT(angle)  && !turningLeft)
+		  {
+			   turnLeft(50);
+//			  turnLeft(ANGLE_TO_SPEED(angle));
+		  }
+		  else if (ISRIGHT(angle) && !turningRight) // else if (ISRIGHT(angle) && !turningRight)
+		  {
+			   turnRight(50);
+
+//			  turnRight(ANGLE_TO_SPEED(angle));
+		  }
+	  }
+	  else if (stop)
+	  {
+		  if (!stopped)
+		  {
+			  speed(0, 0);
+			  turningLeft = 0;
+			  turningRight = 0;
+			  stopped = 1;
+			  movingStraight = 0;
+		  }
+	  }
+	  else if (!stop)
+	  {
+		  if (!movingStraight)
+			  goStraight(80);
+	  }
+
+	  // If the angle is outside the valid range, restart the UART.
+	  if (!IS_VALID_ANGLE(temp_angle))
+	  {
+		  reinitalize_USART1(); // GOTTA TAKE OUT THE USART IT CALL IF WE ARE CALLING IT ALREADY IN THE LOOP
+	  }
+
+	  if (stopped)
+		  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_5, GPIO_PIN_SET);
+	  else
+		  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_5, GPIO_PIN_RESET);
+}
+
 uint32_t time = 0;
 uint64_t wCounter = 0;
 /* USER CODE END 0 */
@@ -837,9 +900,10 @@ int main(void)
 //  uint16_t dist1 = 0, dist2 = 0, dist3 = 0, dist4 = 0, dist5 = 0;
 //  int16_t angle_snapshot = 179, temp_angle_snapshot = 179;
   speed(0, 0);
-  HAL_Delay(5000);
+//  HAL_Delay(5000);
   uint32_t HCSR_block_timeout = 75; // MAKE LARGER IF NEEDED
   uint8_t hcsr_pick = 0;
+  //goStraight(240);
   while (1)
   {
 //	  hcsr_pick = (hcsr_pick + 1) % 3;
@@ -908,30 +972,16 @@ int main(void)
 //	  while (Distance5_flag == 0 && ((HAL_GetTick() - millis) <= HCSR_block_timeout)) {}
 ////	  while (Distance5_flag == 0) {}
 //	  time = HAL_GetTick() - millis;
-	  USART_State = HAL_UART_Receive_IT(&huart1, rx, AOA_USART_NUM_BYTES);
 
-	  HCSR04_Read();
-	  millis = HAL_GetTick();
-	  while ((Distance1_flag == 0) && ((HAL_GetTick() - millis) <= HCSR_block_timeout)) {}
+	  // STRAIGHT GOING CODE
 
-	  HCSR2_Read();
-	  millis = HAL_GetTick();
-	  while ((Distance2_flag == 0) && ((HAL_GetTick() - millis) <= HCSR_block_timeout)) {}
-
-	  HCSR5_Read();
-	  millis = HAL_GetTick();
-	  while ((Distance5_flag == 0) && ((HAL_GetTick() - millis) <= HCSR_block_timeout)) {}
-
-	  // Update the state.
-	  stop = ISSTOP(HCSR_Distance_1, HCSR_Distance_2, HCSR_Distance_5);
-//	  stopTurn = IS_STOP_TURN(HCSR_Distance_1, HCSR_Distance_2, HCSR_Distance_5);
-	  turn = ISTURN(angle);
-
-	  // Interpret the results to send motor commands.
-	  if (turn)
-	  {
-//		  if (stopTurn)
-//		  {
+//	  HCSR04_Read();
+//	  millis = HAL_GetTick();
+//	  while ((Distance1_flag == 0) && ((HAL_GetTick() - millis) <= HCSR_block_timeout)) {}
+//
+//	  stop = ISSTOP(HCSR_Distance_1, HCSR_Distance_2, HCSR_Distance_5);
+//	  if (stop)
+//	  {
 //		  if (!stopped)
 //		  {
 //			  speed(0, 0);
@@ -940,35 +990,78 @@ int main(void)
 //			  stopped = 1;
 //			  movingStraight = 0;
 //		  }
+//	  }
+//	  else
+//		  goStraight(200);
+//
+//	  HCSR2_Read();
+//  	  millis = HAL_GetTick();
+//	  while ((Distance2_flag == 0) && ((HAL_GetTick() - millis) <= HCSR_block_timeout)) {}
+//
+//	  stop = ISSTOP(HCSR_Distance_1, HCSR_Distance_2, HCSR_Distance_5);
+//	  if (stop)
+//	  {
+//		  if (!stopped)
+//		  {
+//			  speed(0, 0);
+//			  turningLeft = 0;
+//			  turningRight = 0;
+//			  stopped = 1;
+//			  movingStraight = 0;
 //		  }
-		  if (ISLEFT(angle) && !turningLeft) // if (ISLEFT(angle)  && !turningLeft)
-		  {
-			   turnLeft(50);
-//			  turnLeft(ANGLE_TO_SPEED(angle));
-		  }
-		  else if (ISRIGHT(angle) && !turningRight) // else if (ISRIGHT(angle) && !turningRight)
-		  {
-			   turnRight(50);
+//	  }
+//	  else
+//		  goStraight(200);
+//
+//	  HCSR5_Read();
+//	  millis = HAL_GetTick();
+//	  while ((Distance5_flag == 0) && ((HAL_GetTick() - millis) <= HCSR_block_timeout)) {}
+//
+//	  stop = ISSTOP(HCSR_Distance_1, HCSR_Distance_2, HCSR_Distance_5);
+//	  if (stop)
+//	  {
+//		  if (!stopped)
+//		  {
+//			  speed(0, 0);
+//			  turningLeft = 0;
+//			  turningRight = 0;
+//			  stopped = 1;
+//			  movingStraight = 0;
+//		  }
+//	  }
+//	  else
+//		  goStraight(200);
 
-//			  turnRight(ANGLE_TO_SPEED(angle));
-		  }
-	  }
-	  else if (stop)
-	  {
-		  if (!stopped)
-		  {
-			  speed(0, 0);
-			  turningLeft = 0;
-			  turningRight = 0;
-			  stopped = 1;
-			  movingStraight = 0;
-		  }
-	  }
-	  else if (!stop)
-	  {
-		  if (!movingStraight)
-			  goStraight(80);
-	  }
+	  // STRAIGHT GOING CODE END
+
+
+	  // NEW CODE START
+	  USART_State = HAL_UART_Receive_IT(&huart1, rx, AOA_USART_NUM_BYTES);
+
+	  HCSR04_Read();
+	  millis = HAL_GetTick();
+	  while ((Distance1_flag == 0) && ((HAL_GetTick() - millis) <= HCSR_block_timeout)) {}
+
+	  makeDecision();
+
+	  USART_State = HAL_UART_Receive_IT(&huart1, rx, AOA_USART_NUM_BYTES);
+
+	  HCSR2_Read();
+	  millis = HAL_GetTick();
+	  while ((Distance2_flag == 0) && ((HAL_GetTick() - millis) <= HCSR_block_timeout)) {}
+
+	  makeDecision();
+
+	  USART_State = HAL_UART_Receive_IT(&huart1, rx, AOA_USART_NUM_BYTES);
+
+	  HCSR5_Read();
+	  millis = HAL_GetTick();
+	  while ((Distance5_flag == 0) && ((HAL_GetTick() - millis) <= HCSR_block_timeout)) {}
+
+	  makeDecision();
+
+	  // NEW CODE END
+
 
 	  // FOR NOW, SINCE WE ARE WAITING WITH POLLING FOR DISTANCE SENSORS, DO NOT DO THIS.
 	  // HAL_Delay(10); // Small delay to avoid sending commands to motors too frequently.
@@ -995,17 +1088,6 @@ int main(void)
 //	  {
 //		  USART_State = HAL_UART_Receive_IT(&huart1, rx, AOA_USART_NUM_BYTES);
 //	  }
-
-	  // If the angle is outside the valid range, restart the UART.
-	  if (!IS_VALID_ANGLE(temp_angle))
-	  {
-		  reinitalize_USART1(); // GOTTA TAKE OUT THE USART IT CALL IF WE ARE CALLING IT ALREADY IN THE LOOP
-	  }
-
-	  if (stopped)
-		  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_5, GPIO_PIN_SET);
-	  else
-		  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_5, GPIO_PIN_RESET);
 
 
 
