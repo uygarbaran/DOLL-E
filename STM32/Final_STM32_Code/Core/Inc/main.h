@@ -61,14 +61,14 @@ void Error_Handler(void);
 /* Private defines -----------------------------------------------------------*/
 #define TIM17_CH1_Pin GPIO_PIN_9
 #define TIM17_CH1_GPIO_Port GPIOB
-#define TRIG_Pin GPIO_PIN_15
-#define TRIG_GPIO_Port GPIOC
+#define TRIG1_Pin GPIO_PIN_15
+#define TRIG1_GPIO_Port GPIOC
 #define TIM2_CH1_Pin GPIO_PIN_0
 #define TIM2_CH1_GPIO_Port GPIOA
-#define TIM2_CH2_Pin GPIO_PIN_1
-#define TIM2_CH2_GPIO_Port GPIOA
-#define TIM14_CH1_Pin GPIO_PIN_4
-#define TIM14_CH1_GPIO_Port GPIOA
+#define TRIG3_Pin GPIO_PIN_1
+#define TRIG3_GPIO_Port GPIOA
+#define TRIG2_Pin GPIO_PIN_4
+#define TRIG2_GPIO_Port GPIOA
 #define TEST_LED_Pin GPIO_PIN_5
 #define TEST_LED_GPIO_Port GPIOA
 #define TIM3_CH1_Pin GPIO_PIN_6
@@ -77,12 +77,6 @@ void Error_Handler(void);
 #define TIM3_CH2_GPIO_Port GPIOA
 #define TIM1_CH1_Pin GPIO_PIN_8
 #define TIM1_CH1_GPIO_Port GPIOA
-#define I2C2_SCL_Pin GPIO_PIN_11
-#define I2C2_SCL_GPIO_Port GPIOA
-#define SYS_SWDIO_Pin GPIO_PIN_13
-#define SYS_SWDIO_GPIO_Port GPIOA
-#define SYS_SWCLK_Pin GPIO_PIN_14
-#define SYS_SWCLK_GPIO_Port GPIOA
 
 /* USER CODE BEGIN Private defines */
 

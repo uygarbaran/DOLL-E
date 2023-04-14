@@ -46,9 +46,7 @@ TIM_HandleTypeDef htim14;
 TIM_HandleTypeDef htim17;
 
 UART_HandleTypeDef huart1;
-UART_HandleTypeDef huart2;
 DMA_HandleTypeDef hdma_usart1_rx;
-DMA_HandleTypeDef hdma_usart2_rx;
 
 /* USER CODE BEGIN PV */
 
@@ -61,7 +59,6 @@ static void MX_DMA_Init(void);
 static void MX_USART1_UART_Init(void);
 static void MX_TIM14_Init(void);
 static void MX_TIM17_Init(void);
-static void MX_USART2_UART_Init(void);
 static void MX_TIM1_Init(void);
 static void MX_TIM2_Init(void);
 static void MX_TIM3_Init(void);
@@ -74,9 +71,19 @@ static void MX_TIM3_Init(void);
 /*********************************************************************************
 								Definitions
 **********************************************************************************/
+#define LED_PIN					GPIO_PIN_5
+#define LED_PORT				GPIOA
+
 // HC-SR04 definitions
-#define TRIG_PIN				GPIO_PIN_15
-#define TRIG_PORT				GPIOC
+#define TRIG1_PIN				GPIO_PIN_15
+#define TRIG1_PORT				GPIOC
+
+#define TRIG2_PIN				GPIO_PIN_4
+#define TRIG2_PORT				GPIOA
+
+#define TRIG3_PIN				GPIO_PIN_1
+#define TRIG3_PORT				GPIOA
+
 #define STOP_RANGE_HCSR			70 				// if HC-SR04 sees this (in cms), stop the motors
 
 #define HCSR1_timer_handler		htim1
@@ -91,30 +98,30 @@ static void MX_TIM3_Init(void);
 #define HCSR2_TIMER_ADDRESS		TIM2
 #define HCSR2_ACTIVE_CHANNEL	HAL_TIM_ACTIVE_CHANNEL_1
 
-#define HCSR3_timer_handler		htim2
-#define HCSR3_TIMER_CHANNEL		TIM_CHANNEL_2
-#define HCSR3_TIM_IT_CC			TIM_IT_CC2
-#define HCSR3_TIMER_ADDRESS		TIM2
-#define HCSR3_ACTIVE_CHANNEL	HAL_TIM_ACTIVE_CHANNEL_2
+#define HCSR3_timer_handler		htim17
+#define HCSR3_TIMER_CHANNEL		TIM_CHANNEL_1
+#define HCSR3_TIM_IT_CC			TIM_IT_CC1
+#define HCSR3_TIMER_ADDRESS		TIM17
+#define HCSR3_ACTIVE_CHANNEL	HAL_TIM_ACTIVE_CHANNEL_1
 
-#define HCSR4_timer_handler		htim14
-#define HCSR4_TIMER_CHANNEL		TIM_CHANNEL_1
-#define HCSR4_TIM_IT_CC			TIM_IT_CC1
-#define HCSR4_TIMER_ADDRESS		TIM14
-#define HCSR4_ACTIVE_CHANNEL	HAL_TIM_ACTIVE_CHANNEL_1
+#define HCSR_BLOCK_TIMEOUT		75
 
-#define HCSR5_timer_handler		htim17
-#define HCSR5_TIMER_CHANNEL		TIM_CHANNEL_1
-#define HCSR5_TIM_IT_CC			TIM_IT_CC1
-#define HCSR5_TIMER_ADDRESS		TIM17
-#define HCSR5_ACTIVE_CHANNEL	HAL_TIM_ACTIVE_CHANNEL_1
+//#define HCSR4_timer_handler		htim14
+//#define HCSR4_TIMER_CHANNEL		TIM_CHANNEL_1
+//#define HCSR4_TIM_IT_CC			TIM_IT_CC1
+//#define HCSR4_TIMER_ADDRESS		TIM14
+//#define HCSR4_ACTIVE_CHANNEL	HAL_TIM_ACTIVE_CHANNEL_1
+//
+//#define HCSR5_timer_handler		htim17
+//#define HCSR5_TIMER_CHANNEL		TIM_CHANNEL_1
+//#define HCSR5_TIM_IT_CC			TIM_IT_CC1
+//#define HCSR5_TIMER_ADDRESS		TIM17
+//#define HCSR5_ACTIVE_CHANNEL	HAL_TIM_ACTIVE_CHANNEL_1
 
 // HC-SR04 Enables (change to 0 to disable. Else, 1.)
 #define HCSR1_EN	1
 #define HCSR2_EN	1
 #define HCSR3_EN	1
-#define HCSR4_EN	1
-#define HCSR5_EN	1
 
 // Motor Controller (PWM) definitions
 #define pwm_timer_handler 			htim3
@@ -133,33 +140,46 @@ static void MX_TIM3_Init(void);
 #define ISTURN(_angle) (((_angle) > LEFT_LIMIT) && ((_angle) < RIGHT_LIMIT))
 #define ISLEFT(_angle) (((_angle) > LEFT_LIMIT) && ((_angle) < 0))
 #define ISRIGHT(_angle) (((_angle) >= 0) && ((_angle) < RIGHT_LIMIT))
-#define ISSTOP(_hcsr_dist_1, _hcsr_dist_2, _hcsr_dist_3, _hcsr_dist_4, _hcsr_dist_5) (((_hcsr_dist_1) < STOP_RANGE_HCSR) || ((_hcsr_dist_2) < STOP_RANGE_HCSR) || ((_hcsr_dist_3) < STOP_RANGE_HCSR) || ((_hcsr_dist_4) < STOP_RANGE_HCSR) || ((_hcsr_dist_5) < STOP_RANGE_HCSR))
+#define ISSTOP(_hcsr_dist_1, _hcsr_dist_2, _hcsr_dist_3) (((_hcsr_dist_1) < STOP_RANGE_HCSR) || ((_hcsr_dist_2) < STOP_RANGE_HCSR) || ((_hcsr_dist_3) < STOP_RANGE_HCSR))
 
 // AoA Enables (change to 0 to disable. Else, 1.)
 #define AOA_EN	1
 
 // AoA Error Handling (Important)
-#define ANGLE_SAMPLING_HALTED_COUNT 4 // If the angle is the same for 4 consecutive times in the super loop, assume that UART sampling is halted and request it again
+#define ANGLE_SAMPLING_HALTED_COUNT 12 // If the angle is the same for 4 consecutive times in the super loop, assume that UART sampling is halted and request it again
 
 // AoA USART defines
 #define AOA_USART_NUM_BYTES 2 // Change to 3 if adding AoA distance into USART
 #define aoa_buffer			rx
 
 // Motor Controller PWM defines
-#define FRICTION_OFFSET		0	// Right motor has different friction than the left one. This accounts for that.
+#define FRICTION_OFFSET			8
+// Right motor has different friction than the left one. This accounts for that.
 #define MAX_MOTOR_SPEED_USED	200 	// This is the maximum motor speed we want to reach. More than this could be too fast.
+#define TURN_SPEED				55		// Turning speed if it is a constant.
+#define FORWARD_SPEED			100		// Moving forward speed if it is a constant.
+#define MAX_FORWARD_SPEED		160		// This speed is the maximum speed that DOLL-E will move forward.
 
+// Operation Macros
+#define MIN(_a, _b, _c) (((_a) < (_b)) ? \
+						 ((_a) < (_c)) ? \
+						 (_a) : (_c) : ((_b) < (_c)) ? \
+						 (_b) : (_c))
 #define ABS(_ang_) ((_ang_) < 0 ? -(_ang_) : (_ang_))
+
+// Speed conversion macros
 #define ANGLE_TO_SPEED(__angle__) (MAX_MOTOR_SPEED_USED - ((int32_t)(ABS(__angle__))))
+#define HCSR_DIST_TO_SPEED(_d1, _d2, _d3) (MIN(_d1, _d2, _d3) - STOP_RANGE_HCSR)
 
 /*********************************************************************************
 								Global Variables
 **********************************************************************************/
 // State machine variables
-// The following 2 variables are the commands to stop and turn the DOLL-E.
+// The following 3 variables are the commands to stop and turn the DOLL-E.
 // They indicate that DOLL-E should turn, but not that it is turning yet.
 uint8_t stop = 1;
 uint8_t turn = 0;
+uint8_t stopTurn = 1; // Stop from turning
 
 // The following 4 states actually represent the current state of DOLL-E (what it is currently doing).
 uint8_t stopped = 1;
@@ -169,7 +189,7 @@ uint8_t movingStraight = 0;
 
 // AoA variables
 int16_t angle = 178; // Angle of asset tag (azimuth) relative to the antenna board
-int16_t temp_angle; // For checking the validity of angle before assigning it to variable "angle"
+int16_t temp_angle = 178; // For checking the validity of angle before assigning it to variable "angle"
 uint8_t rx[AOA_USART_NUM_BYTES]; // Buffer to receive the angle and distance from Pi
 
 // AoA Error Handling variables (IMPORTANT)
@@ -186,37 +206,32 @@ uint32_t IC_VAL2_HCSR2 = 0;
 uint32_t IC_VAL1_HCSR3 = 0;
 uint32_t IC_VAL2_HCSR3 = 0;
 
-uint32_t IC_VAL1_HCSR4 = 0;
-uint32_t IC_VAL2_HCSR4 = 0;
-
-uint32_t IC_VAL1_HCSR5 = 0;
-uint32_t IC_VAL2_HCSR5 = 0;
-
 uint32_t Difference_1 = 0;  // Difference in time between rising and falling edge of HCSR1's ECHO pin
 uint32_t Difference_2 = 0;  // Difference in time between rising and falling edge of HCSR2's ECHO pin
 uint32_t Difference_3 = 0;
-uint32_t Difference_4 = 0;
-uint32_t Difference_5 = 0;
 
 uint8_t Is_First_Captured_1 = 0;  // Indicates whether the rising edge is captured for HCSR1's ECHO pin
 uint8_t Is_First_Captured_2 = 0;  // Indicates whether the rising edge is captured for HCSR2's ECHO pin
 uint8_t Is_First_Captured_3 = 0;
-uint8_t Is_First_Captured_4 = 0;
-uint8_t Is_First_Captured_5 = 0;
+
+uint8_t Distance1_flag = 0; // These flags are set to 1 when distance is calculated.
+uint8_t Distance2_flag = 0;
+uint8_t Distance3_flag = 0;
 
 uint16_t HCSR_Distance_1  = 101; // HCSR04 Distance Sensor #1 output
 uint16_t HCSR_Distance_2  = 101; // HCSR04 Distance Sensor #2 output
 uint16_t HCSR_Distance_3  = 101; // HCSR04 Distance Sensor #3 output
-uint16_t HCSR_Distance_4  = 101; // HCSR04 Distance Sensor #4 output
-uint16_t HCSR_Distance_5  = 101; // HCSR04 Distance Sensor #5 output
 
 // USART variables
 HAL_StatusTypeDef USART_State = HAL_ERROR;
 
+// Timer variables
+uint32_t millis = 0;
+
 /*********************************************************************************
 								Macro Functions Begin
 **********************************************************************************/
-#define HCSR_INPUT_HANDLE(_htim, _HCSR_TIMER_ADDRESS, _HCSR_ACTIVE_CHANNEL, _HCSR_TIMER_CHANNEL, _HCSR_TIM_IT_CC, _Is_First_Captured, _IC_VAL1_HCSR, _IC_VAL2_HCSR, _Difference, _HCSR_Distance) \
+#define HCSR_INPUT_HANDLE(_htim, _HCSR_TIMER_ADDRESS, _HCSR_ACTIVE_CHANNEL, _HCSR_TIMER_CHANNEL, _HCSR_TIM_IT_CC, _Is_First_Captured, _IC_VAL1_HCSR, _IC_VAL2_HCSR, _Difference, _HCSR_Distance, _Dist_Flag) \
 		if ((_htim)->Instance == (_HCSR_TIMER_ADDRESS) && (_htim)->Channel == (_HCSR_ACTIVE_CHANNEL)) { \
 				if ((_Is_First_Captured) == 0) { \
 					/* Take the time stamp of when the rising edge occurs */ \
@@ -237,6 +252,7 @@ HAL_StatusTypeDef USART_State = HAL_ERROR;
 					} \
 					_HCSR_Distance = (_Difference) * .034/2; \
 					_Is_First_Captured = 0; /* set it back to false */ \
+					_Dist_Flag = 1; /* Set the distance flag to 1 to indicate that the distance is calculated.*/ \
 					/* set polarity to rising edge */ \
 					__HAL_TIM_SET_CAPTUREPOLARITY((_htim), (_HCSR_TIMER_CHANNEL), TIM_INPUTCHANNELPOLARITY_RISING); \
 					/* Disable the interrupt after the distance calculation is done (or the noise can still pull the line up and down and cause interrupts) */ \
@@ -251,11 +267,7 @@ void delay_in_us(uint16_t time)
 {
 	TIM_HandleTypeDef *htim = NULL;
 
-#if HCSR5_EN
-	htim = &HCSR5_timer_handler;
-#elif HCSR4_EN
-	htim = &HCSR4_timer_handler;
-#elif HCSR3_EN
+#if HCSR3_EN
 	htim = &HCSR3_timer_handler;
 #elif HCSR2_EN
 	htim = &HCSR2_timer_handler;
@@ -263,11 +275,13 @@ void delay_in_us(uint16_t time)
 	htim = &HCSR1_timer_handler;
 #endif
 
+#if (HCSR3_EN || HCSR2_EN || HCSR1_EN)
 	if (htim != NULL)
 	{
 		__HAL_TIM_SET_COUNTER(htim, 0);
 		while (__HAL_TIM_GET_COUNTER(htim) < time);
 	}
+#endif
 }
 
 /*********************************************************************************
@@ -279,54 +293,59 @@ void HAL_TIM_IC_CaptureCallback(TIM_HandleTypeDef *htim)
 #if HCSR1_EN
 	HCSR_INPUT_HANDLE(htim, HCSR1_TIMER_ADDRESS, HCSR1_ACTIVE_CHANNEL, HCSR1_TIMER_CHANNEL,
 					  HCSR1_TIM_IT_CC, Is_First_Captured_1, IC_VAL1_HCSR1, IC_VAL2_HCSR1,
-					  Difference_1, HCSR_Distance_1);
+					  Difference_1, HCSR_Distance_1, Distance1_flag);
 #endif
 #if HCSR2_EN
 	HCSR_INPUT_HANDLE(htim, HCSR2_TIMER_ADDRESS, HCSR2_ACTIVE_CHANNEL, HCSR2_TIMER_CHANNEL,
 					  HCSR2_TIM_IT_CC, Is_First_Captured_2, IC_VAL1_HCSR2, IC_VAL2_HCSR2,
-					  Difference_2, HCSR_Distance_2);
+					  Difference_2, HCSR_Distance_2, Distance2_flag);
 #endif
 #if HCSR3_EN
 	HCSR_INPUT_HANDLE(htim, HCSR3_TIMER_ADDRESS, HCSR3_ACTIVE_CHANNEL, HCSR3_TIMER_CHANNEL,
 					  HCSR3_TIM_IT_CC, Is_First_Captured_3, IC_VAL1_HCSR3, IC_VAL2_HCSR3,
-					  Difference_3, HCSR_Distance_3);
-#endif
-#if HCSR4_EN
-	HCSR_INPUT_HANDLE(htim, HCSR4_TIMER_ADDRESS, HCSR4_ACTIVE_CHANNEL, HCSR4_TIMER_CHANNEL,
-					  HCSR4_TIM_IT_CC, Is_First_Captured_4, IC_VAL1_HCSR4, IC_VAL2_HCSR4,
-					  Difference_4, HCSR_Distance_4);
-#endif
-#if HCSR5_EN
-	HCSR_INPUT_HANDLE(htim, HCSR5_TIMER_ADDRESS, HCSR5_ACTIVE_CHANNEL, HCSR5_TIMER_CHANNEL,
-					  HCSR5_TIM_IT_CC, Is_First_Captured_5, IC_VAL1_HCSR5, IC_VAL2_HCSR5,
-					  Difference_5, HCSR_Distance_5);
+					  Difference_3, HCSR_Distance_3, Distance3_flag);
 #endif
 }
 
 // Pulls the trigger pin high for 10us to start the calculation
-void HCSR04_Read (void)
+void HCSR1_Read (void)
 {
-#if (HCSR1_EN || HCSR2_EN || HCSR3_EN || HCSR4_EN || HCSR5_EN)
-	HAL_GPIO_WritePin(TRIG_PORT, TRIG_PIN, GPIO_PIN_SET);  // pull the TRIG pin HIGH
+#if HCSR1_EN
+	Distance1_flag = 0;
+	HAL_GPIO_WritePin(TRIG1_PORT, TRIG1_PIN, GPIO_PIN_SET);  // pull the TRIG pin HIGH
 	delay_in_us(10);  // wait for 10 us
-	HAL_GPIO_WritePin(TRIG_PORT, TRIG_PIN, GPIO_PIN_RESET);  // pull the TRIG pin low
-#endif
+	HAL_GPIO_WritePin(TRIG1_PORT, TRIG1_PIN, GPIO_PIN_RESET);  // pull the TRIG pin low
 
 	// Enable the interrupt for capturing how long the ECHO pin stays high in order to calculate the distance
-#if HCSR1_EN
 	__HAL_TIM_ENABLE_IT(&HCSR1_timer_handler, HCSR1_TIM_IT_CC);
 #endif
+}
+
+// Pulls the trigger pin high for 10us to start the calculation
+void HCSR2_Read (void)
+{
 #if HCSR2_EN
+	Distance2_flag = 0;
+	HAL_GPIO_WritePin(TRIG2_PORT, TRIG2_PIN, GPIO_PIN_SET);  // pull the TRIG pin HIGH
+	delay_in_us(10);  // wait for 10 us
+	HAL_GPIO_WritePin(TRIG2_PORT, TRIG2_PIN, GPIO_PIN_RESET);  // pull the TRIG pin low
+
+	// Enable the interrupt for capturing how long the ECHO pin stays high in order to calculate the distance
 	__HAL_TIM_ENABLE_IT(&HCSR2_timer_handler, HCSR2_TIM_IT_CC);
 #endif
+}
+
+// Pulls the trigger pin high for 10us to start the calculation
+void HCSR3_Read (void)
+{
 #if HCSR3_EN
+	Distance3_flag = 0;
+	HAL_GPIO_WritePin(TRIG3_PORT, TRIG3_PIN, GPIO_PIN_SET);  // pull the TRIG pin HIGH
+	delay_in_us(10);  // wait for 10 us
+	HAL_GPIO_WritePin(TRIG3_PORT, TRIG3_PIN, GPIO_PIN_RESET);  // pull the TRIG pin low
+
+	// Enable the interrupt for capturing how long the ECHO pin stays high in order to calculate the distance
 	__HAL_TIM_ENABLE_IT(&HCSR3_timer_handler, HCSR3_TIM_IT_CC);
-#endif
-#if HCSR4_EN
-	__HAL_TIM_ENABLE_IT(&HCSR4_timer_handler, HCSR4_TIM_IT_CC);
-#endif
-#if HCSR5_EN
-	__HAL_TIM_ENABLE_IT(&HCSR5_timer_handler, HCSR5_TIM_IT_CC);
 #endif
 }
 /*********************************************************************************
@@ -396,9 +415,6 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
 	angle = (((int16_t) (((float)recent_angles_sum/ANGLE_BUFF_SIZE) + 179.5f)) - 179);
 
 **************************************************************************************************************/
-
-	// call the interrupt function again to keep the interrupts going
-	USART_State = HAL_UART_Receive_IT(&huart1, aoa_buffer, AOA_USART_NUM_BYTES);
 }
 
 // Callback for when you have a constant timer interrupt after a while (e.g. Distance sensor reading every 0.5 seconds)
@@ -415,6 +431,12 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
 **********************************************************************************/
 void speed(int32_t l, int32_t r) // range from -250 to 250
 {
+	if (l < -250 || l > 250 || r < -250 || r > 250)
+	{
+		l = 0;
+		r = 0;
+	}
+
 	uint32_t set_l = (l) + 750;
 	if (l == 0)
 		set_l = 0;
@@ -423,6 +445,7 @@ void speed(int32_t l, int32_t r) // range from -250 to 250
 	if (r == 0)
 		set_r = 0;
 
+//	__HAL_TIM_SET_COUNTER(&pwm_timer_handler, 0);
 	__HAL_TIM_SET_COMPARE(&pwm_timer_handler, PWM_LEFT_MOTOR_CHANNEL, set_l);
 	__HAL_TIM_SET_COMPARE(&pwm_timer_handler, PWM_RIGHT_MOTOR_CHANNEL, set_r);
 }
@@ -430,6 +453,11 @@ void speed(int32_t l, int32_t r) // range from -250 to 250
 // Input: Left wheel absolute speed
 void turnLeft(int32_t speed_val)
 {
+	turningLeft = 1;
+	turningRight = 0;
+	stopped = 0;
+	movingStraight = 0;
+
 	// Less than FRICTION_OFFSET is there because the friction on the left wheel is more.
 	if (speed_val < FRICTION_OFFSET || speed_val > 250)
 	{
@@ -437,16 +465,17 @@ void turnLeft(int32_t speed_val)
 		return;
 	}
 
-	turningLeft = 1;
-	turningRight = 0;
-	stopped = 0;
-	movingStraight = 0;
 	speed(-speed_val, speed_val - FRICTION_OFFSET);
 }
 
 // Input: Left wheel absolute speed (since left wheel has the larger absolute value at all times)
 void turnRight(int32_t speed_val)
 {
+	turningRight = 1;
+	turningLeft = 0;
+	stopped = 0;
+	movingStraight = 0;
+
 	// Less than FRICTION_OFFSET is there because the friction on the left wheel is more.
 	if (speed_val < FRICTION_OFFSET || speed_val > 250)
 	{
@@ -454,16 +483,17 @@ void turnRight(int32_t speed_val)
 		return;
 	}
 
-	turningRight = 1;
-	turningLeft = 0;
-	stopped = 0;
-	movingStraight = 0;
 	speed(speed_val, -(speed_val - FRICTION_OFFSET));
 }
 
 // Input: Left wheel absolute speed
 void goStraight(int32_t speed_val)
 {
+	turningLeft = 0;
+	turningRight = 0;
+	stopped = 0;
+	movingStraight = 1;
+
 	// Less than FRICTION_OFFSET is there because the friction on the left wheel is more.
 	if (speed_val <= FRICTION_OFFSET || speed_val > 250)
 	{
@@ -471,32 +501,49 @@ void goStraight(int32_t speed_val)
 		return;
 	}
 
+	speed(speed_val, speed_val - FRICTION_OFFSET);
+}
+
+void goStraightAnalog(int32_t speed_val)
+{
 	turningLeft = 0;
 	turningRight = 0;
 	stopped = 0;
 	movingStraight = 1;
+
+	// Less than FRICTION_OFFSET is there because the friction on the left wheel is more.
+	if (speed_val <= FRICTION_OFFSET)
+	{
+		speed(0, 0);
+		return;
+	}
+	else if (speed_val > MAX_FORWARD_SPEED) // Theoretically, max speed_val is (400 - HCSR_DIST_RANGE)
+	{
+		speed_val = MAX_FORWARD_SPEED;
+	}
+
 	speed(speed_val, speed_val - FRICTION_OFFSET);
 }
 
-void turnDOLLE(void)
+void goStraightAnalogCapped(int32_t speed_val)
 {
-	// TURN TOWARDS THE USER UNTIL THE USER IS IN FRONT OF DOLL-E
-	do
+	turningLeft = 0;
+	turningRight = 0;
+	stopped = 0;
+	movingStraight = 1;
+
+	// Less than FRICTION_OFFSET is there because the friction on the left wheel is more.
+	if (speed_val <= FRICTION_OFFSET)
 	{
-		if (ISLEFT(angle))
-		{
-			turnLeft(50);
-        }
-	    else if(ISRIGHT(angle))
-	    {
-	   	    turnRight(50);
-		}
-	    else
-	    {
-	 	    speed(0, 0);
-		}
-	    HAL_Delay(40);
-	} while(ISTURN(angle));
+		speed(0, 0);
+		return;
+	}
+	else if (speed_val > 15) // Theoretically, max speed_val is (400 - HCSR_DIST_RANGE)
+	{
+		speed_val = FORWARD_SPEED;
+	}
+
+	speed(speed_val, speed_val - FRICTION_OFFSET);
 }
 /*********************************************************************************
 					   Motor Controller Functions End
@@ -513,11 +560,97 @@ void reinitalize_aoa_UART()
 
     // Call UART interrupt to sample again before it tries to deinitialize again.
     // If it doesn't work, give some delay after it to wait for the new angle to arrive.
-    USART_State = HAL_UART_Receive_IT(&huart1, aoa_buffer, AOA_USART_NUM_BYTES);
+    USART_State = HAL_UART_Receive_IT(&huart1, rx, AOA_USART_NUM_BYTES);
 }
 /*********************************************************************************
 					   Error Handling Functions End
 **********************************************************************************/
+
+void makeDecision()
+{
+	 // Update the state.
+	  stop = ISSTOP(HCSR_Distance_1, HCSR_Distance_2, HCSR_Distance_3);
+//	  stopTurn = IS_STOP_TURN(HCSR_Distance_1, HCSR_Distance_2, HCSR_Distance_3);
+	  turn = ISTURN(angle);
+
+	  // Interpret the results to send motor commands.
+	  if (turn)
+	  {
+//		  if (stopTurn)
+//		  {
+//		  if (!stopped)
+//		  {
+//			  speed(0, 0);
+//			  turningLeft = 0;
+//			  turningRight = 0;
+//			  stopped = 1;
+//			  movingStraight = 0;
+//		  }
+//		  }
+		  if (ISLEFT(angle) && !turningLeft) // if (ISLEFT(angle)  && !turningLeft)
+		  {
+			   turnLeft(TURN_SPEED);
+//			  turnLeft(ANGLE_TO_SPEED(angle));
+		  }
+		  else if (ISRIGHT(angle) && !turningRight) // else if (ISRIGHT(angle) && !turningRight)
+		  {
+			   turnRight(TURN_SPEED);
+
+//			  turnRight(ANGLE_TO_SPEED(angle));
+		  }
+	  }
+	  else if (stop)
+	  {
+		  if (!stopped)
+		  {
+			  turningLeft = 0;
+			  turningRight = 0;
+			  stopped = 1;
+			  movingStraight = 0;
+			  speed(0, 0);
+		  }
+	  }
+	  else if (!stop)
+	  {
+		  if (!movingStraight)
+			  goStraight(FORWARD_SPEED);
+
+//		  goStraightAnalogCapped(HCSR_DIST_TO_SPEED(HCSR_Distance_1, HCSR_Distance_2, HCSR_Distance_3));
+	  }
+
+#if AOA_EN
+	  if (prevAngle == angle)
+	  {
+		  angleCounter++;
+		  if (angleCounter == 0)
+			  angleCounter = 255;
+	  }
+	  else
+	  {
+		  angleCounter = 0;
+	  }
+
+	  prevAngle = angle; // Update previous angle value
+
+	  // If the angle is outside the valid range, restart the UART.
+	  if (!IS_VALID_ANGLE(temp_angle) || angleCounter >= ANGLE_SAMPLING_HALTED_COUNT)
+	  {
+		  reinitalize_aoa_UART(); // GOTTA TAKE OUT THE USART IT CALL IF WE ARE CALLING IT ALREADY IN THE LOOP
+	  }
+#endif
+
+	  //
+	  //	  // If the angle has been the same value for a while, call the UART Receive interrupt again.
+	  //	  if (angleCounter >= ANGLE_SAMPLING_HALTED_COUNT) // CURRENTLY 8, BRING IT DOWN IF NEEDED
+	  //	  {
+	  //		  USART_State = HAL_UART_Receive_IT(&huart1, rx, AOA_USART_NUM_BYTES);
+	  //	  }
+
+	  if (stopped)
+		  HAL_GPIO_WritePin(LED_PORT, LED_PIN, GPIO_PIN_SET);
+	  else
+		  HAL_GPIO_WritePin(LED_PORT, LED_PIN, GPIO_PIN_RESET);
+}
 
 /* USER CODE END 0 */
 
@@ -553,7 +686,6 @@ int main(void)
   MX_USART1_UART_Init();
   MX_TIM14_Init();
   MX_TIM17_Init();
-  MX_USART2_UART_Init();
   MX_TIM1_Init();
   MX_TIM2_Init();
   MX_TIM3_Init();
@@ -569,12 +701,6 @@ int main(void)
 #if HCSR3_EN
   HAL_TIM_IC_Start_IT(&HCSR3_timer_handler, HCSR3_TIMER_CHANNEL);
 #endif
-#if HCSR4_EN
-  HAL_TIM_IC_Start_IT(&HCSR4_timer_handler, HCSR4_TIMER_CHANNEL);
-#endif
-#if HCSR5_EN
-  HAL_TIM_IC_Start_IT(&HCSR5_timer_handler, HCSR5_TIMER_CHANNEL);
-#endif
 
   // ********** PWM Start for Controlling the Motors **********
 #if MOTOR_EN
@@ -582,82 +708,56 @@ int main(void)
   HAL_TIM_PWM_Start(&pwm_timer_handler, PWM_RIGHT_MOTOR_CHANNEL); // Start the PWM for right motor
 #endif
 
-  // ********** UART Rx Interrupt Start for Receiving Angles from Raspberry Pi **********
-#if AOA_EN
-  USART_State = HAL_UART_Receive_IT(&huart1, aoa_buffer, AOA_USART_NUM_BYTES);
-#endif
-
-  // Snapshots for the volatile variables // DISABLED BECAUSE THE CODE DID NOT WORK WELL WITH THIS
-//  uint16_t dist1 = 0, dist2 = 0, dist3 = 0, dist4 = 0, dist5 = 0;
-//  int16_t angle_snapshot = 179, temp_angle_snapshot = 179;
-
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
+  speed(0, 0);
+  int iter = 0;
+  for (iter = 0; iter < 23; iter++)
+  {
+	  HAL_GPIO_WritePin(LED_PORT, LED_PIN, GPIO_PIN_SET);
+	  HAL_Delay(1000);
+	  HAL_GPIO_WritePin(LED_PORT, LED_PIN, GPIO_PIN_RESET);
+	  HAL_Delay(1000);
+  }
   while (1)
   {
-	  // Send the command to read from the distance sensors.
-	  HCSR04_Read();
+#if AOA_EN
+	  USART_State = HAL_UART_Receive_IT(&huart1, rx, AOA_USART_NUM_BYTES);
+#endif
 
-	  // Update the state.
-	  stop = ISSTOP(HCSR_Distance_1, HCSR_Distance_2, HCSR_Distance_3, HCSR_Distance_4, HCSR_Distance_5);
-	  turn = ISTURN(angle);
+#if HCSR1_EN
+	  HCSR1_Read();
+	  millis = HAL_GetTick();
+	  while ((Distance1_flag == 0) && ((HAL_GetTick() - millis) <= HCSR_BLOCK_TIMEOUT)) {}
+#endif
 
-	  // Interpret the results to send motor commands.
-	  if (turn)
-	  {
-		  if (ISLEFT(angle) && !turningLeft)
-		  {
-			  turnLeft(ANGLE_TO_SPEED(angle));
-		  }
-		  else if (ISRIGHT(angle) && !turningRight)
-		  {
-			  turnRight(ANGLE_TO_SPEED(angle));
-		  }
-	  }
-	  else if (stop && !stopped)
-	  {
-		  speed(0, 0);
-		  turningLeft = 0;
-		  turningRight = 0;
-		  stopped = 1;
-		  movingStraight = 0;
-	  }
-	  else if (!stop && !movingStraight)
-	  {
-		  goStraight(50);
-	  }
+	  makeDecision();
 
-	  HAL_Delay(30); // Small delay to avoid sending commands to motors too frequently.
+#if AOA_EN
+	  USART_State = HAL_UART_Receive_IT(&huart1, rx, AOA_USART_NUM_BYTES);
+#endif
 
-	  // ***** Rest of the while loop is error handling *****
+#if HCSR2_EN
+	  HCSR2_Read();
+	  millis = HAL_GetTick();
+	  while ((Distance2_flag == 0) && ((HAL_GetTick() - millis) <= HCSR_BLOCK_TIMEOUT)) {}
+#endif
 
-	  // Count how many times we went through the while loop without angle being updated.
-	  if (prevAngle == angle)
-	  {
-		  angleCounter++;
-		  if (angleCounter == 0)
-			  angleCounter = 255;
-	  }
-	  else
-	  {
-		  angleCounter = 0;
-	  }
+	  makeDecision();
 
-	  prevAngle = angle; // Update previous angle value
+#if AOA_EN
+	  USART_State = HAL_UART_Receive_IT(&huart1, rx, AOA_USART_NUM_BYTES);
+#endif
 
-	  // If the angle has been the same value for a while, call the UART Receive interrupt again.
-	  if (angleCounter >= ANGLE_SAMPLING_HALTED_COUNT)
-	  {
-		  USART_State = HAL_UART_Receive_IT(&huart1, aoa_buffer, AOA_USART_NUM_BYTES);
-	  }
+#if HCSR3_EN
+	  HCSR3_Read();
+	  millis = HAL_GetTick();
+	  while ((Distance3_flag == 0) && ((HAL_GetTick() - millis) <= HCSR_BLOCK_TIMEOUT)) {}
+#endif
 
-	  // If the angle is outside the valid range, restart the UART.
-      if (!IS_VALID_ANGLE(temp_angle))
-      {
-	     reinitalize_aoa_UART();
-      }
+	  makeDecision();
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
@@ -797,10 +897,6 @@ static void MX_TIM2_Init(void)
   {
     Error_Handler();
   }
-  if (HAL_TIM_IC_ConfigChannel(&htim2, &sConfigIC, TIM_CHANNEL_2) != HAL_OK)
-  {
-    Error_Handler();
-  }
   /* USER CODE BEGIN TIM2_Init 2 */
 
   /* USER CODE END TIM2_Init 2 */
@@ -882,8 +978,6 @@ static void MX_TIM14_Init(void)
 
   /* USER CODE END TIM14_Init 0 */
 
-  TIM_IC_InitTypeDef sConfigIC = {0};
-
   /* USER CODE BEGIN TIM14_Init 1 */
 
   /* USER CODE END TIM14_Init 1 */
@@ -894,18 +988,6 @@ static void MX_TIM14_Init(void)
   htim14.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
   htim14.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
   if (HAL_TIM_Base_Init(&htim14) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  if (HAL_TIM_IC_Init(&htim14) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  sConfigIC.ICPolarity = TIM_INPUTCHANNELPOLARITY_RISING;
-  sConfigIC.ICSelection = TIM_ICSELECTION_DIRECTTI;
-  sConfigIC.ICPrescaler = TIM_ICPSC_DIV1;
-  sConfigIC.ICFilter = 0;
-  if (HAL_TIM_IC_ConfigChannel(&htim14, &sConfigIC, TIM_CHANNEL_1) != HAL_OK)
   {
     Error_Handler();
   }
@@ -1010,42 +1092,6 @@ static void MX_USART1_UART_Init(void)
 }
 
 /**
-  * @brief USART2 Initialization Function
-  * @param None
-  * @retval None
-  */
-static void MX_USART2_UART_Init(void)
-{
-
-  /* USER CODE BEGIN USART2_Init 0 */
-
-  /* USER CODE END USART2_Init 0 */
-
-  /* USER CODE BEGIN USART2_Init 1 */
-
-  /* USER CODE END USART2_Init 1 */
-  huart2.Instance = USART2;
-  huart2.Init.BaudRate = 115200;
-  huart2.Init.WordLength = UART_WORDLENGTH_8B;
-  huart2.Init.StopBits = UART_STOPBITS_1;
-  huart2.Init.Parity = UART_PARITY_NONE;
-  huart2.Init.Mode = UART_MODE_TX_RX;
-  huart2.Init.HwFlowCtl = UART_HWCONTROL_NONE;
-  huart2.Init.OverSampling = UART_OVERSAMPLING_16;
-  huart2.Init.OneBitSampling = UART_ONE_BIT_SAMPLE_DISABLE;
-  huart2.Init.ClockPrescaler = UART_PRESCALER_DIV1;
-  huart2.AdvancedInit.AdvFeatureInit = UART_ADVFEATURE_NO_INIT;
-  if (HAL_UART_Init(&huart2) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  /* USER CODE BEGIN USART2_Init 2 */
-
-  /* USER CODE END USART2_Init 2 */
-
-}
-
-/**
   * Enable DMA controller clock
   */
 static void MX_DMA_Init(void)
@@ -1058,9 +1104,6 @@ static void MX_DMA_Init(void)
   /* DMA1_Channel1_IRQn interrupt configuration */
   HAL_NVIC_SetPriority(DMA1_Channel1_IRQn, 0, 0);
   HAL_NVIC_EnableIRQ(DMA1_Channel1_IRQn);
-  /* DMA1_Channel2_3_IRQn interrupt configuration */
-  HAL_NVIC_SetPriority(DMA1_Channel2_3_IRQn, 0, 0);
-  HAL_NVIC_EnableIRQ(DMA1_Channel2_3_IRQn);
 
 }
 
@@ -1079,31 +1122,23 @@ static void MX_GPIO_Init(void)
   __HAL_RCC_GPIOA_CLK_ENABLE();
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(TRIG_GPIO_Port, TRIG_Pin, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(TRIG1_GPIO_Port, TRIG1_Pin, GPIO_PIN_RESET);
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(TEST_LED_GPIO_Port, TEST_LED_Pin, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(GPIOA, TRIG3_Pin|TRIG2_Pin|TEST_LED_Pin, GPIO_PIN_RESET);
 
-  /*Configure GPIO pin : TRIG_Pin */
-  GPIO_InitStruct.Pin = TRIG_Pin;
+  /*Configure GPIO pin : TRIG1_Pin */
+  GPIO_InitStruct.Pin = TRIG1_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-  HAL_GPIO_Init(TRIG_GPIO_Port, &GPIO_InitStruct);
+  HAL_GPIO_Init(TRIG1_GPIO_Port, &GPIO_InitStruct);
 
-  /*Configure GPIO pin : TEST_LED_Pin */
-  GPIO_InitStruct.Pin = TEST_LED_Pin;
+  /*Configure GPIO pins : TRIG3_Pin TRIG2_Pin TEST_LED_Pin */
+  GPIO_InitStruct.Pin = TRIG3_Pin|TRIG2_Pin|TEST_LED_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-  HAL_GPIO_Init(TEST_LED_GPIO_Port, &GPIO_InitStruct);
-
-  /*Configure GPIO pins : I2C2_SCL_Pin PA12 */
-  GPIO_InitStruct.Pin = I2C2_SCL_Pin|GPIO_PIN_12;
-  GPIO_InitStruct.Mode = GPIO_MODE_AF_OD;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
-  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-  GPIO_InitStruct.Alternate = GPIO_AF6_I2C2;
   HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 
 }
