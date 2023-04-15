@@ -42,7 +42,6 @@
 TIM_HandleTypeDef htim1;
 TIM_HandleTypeDef htim2;
 TIM_HandleTypeDef htim3;
-TIM_HandleTypeDef htim14;
 TIM_HandleTypeDef htim17;
 
 UART_HandleTypeDef huart1;
@@ -57,7 +56,6 @@ void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
 static void MX_DMA_Init(void);
 static void MX_USART1_UART_Init(void);
-static void MX_TIM14_Init(void);
 static void MX_TIM17_Init(void);
 static void MX_TIM1_Init(void);
 static void MX_TIM2_Init(void);
@@ -155,7 +153,8 @@ static void MX_TIM3_Init(void);
 // Motor Controller PWM defines
 #define FRICTION_OFFSET			8
 // Right motor has different friction than the left one. This accounts for that.
-#define MAX_MOTOR_SPEED_USED	200 	// This is the maximum motor speed we want to reach. More than this could be too fast.
+#define MAX_TURN_SPEED			RIGHT_LIMIT
+// This is the maximum motor speed we want to reach. More than this could be too fast.
 #define TURN_SPEED				55		// Turning speed if it is a constant.
 #define FORWARD_SPEED			100		// Moving forward speed if it is a constant.
 #define MAX_FORWARD_SPEED		160		// This speed is the maximum speed that DOLL-E will move forward.
@@ -168,7 +167,7 @@ static void MX_TIM3_Init(void);
 #define ABS(_ang_) ((_ang_) < 0 ? -(_ang_) : (_ang_))
 
 // Speed conversion macros
-#define ANGLE_TO_SPEED(__angle__) (MAX_MOTOR_SPEED_USED - ((int32_t)(ABS(__angle__))))
+#define ANGLE_TO_SPEED(__angle__) (MAX_TURN_SPEED - ((int32_t)(ABS(__angle__))))
 #define HCSR_DIST_TO_SPEED(_d1, _d2, _d3) (MIN(_d1, _d2, _d3) - STOP_RANGE_HCSR)
 
 /*********************************************************************************
@@ -459,13 +458,17 @@ void turnLeft(int32_t speed_val)
 	movingStraight = 0;
 
 	// Less than FRICTION_OFFSET is there because the friction on the left wheel is more.
-	if (speed_val < FRICTION_OFFSET || speed_val > 250)
+	if (speed_val < 0 || speed_val > 250)
 	{
 		speed(0, 0);
 		return;
 	}
+	else if (speed_val < FRICTION_OFFSET)
+	{
+		speed_val += FRICTION_OFFSET;
+	}
 
-	speed(-speed_val, speed_val - FRICTION_OFFSET);
+	speed(-1*speed_val, speed_val - FRICTION_OFFSET);
 }
 
 // Input: Left wheel absolute speed (since left wheel has the larger absolute value at all times)
@@ -477,16 +480,135 @@ void turnRight(int32_t speed_val)
 	movingStraight = 0;
 
 	// Less than FRICTION_OFFSET is there because the friction on the left wheel is more.
-	if (speed_val < FRICTION_OFFSET || speed_val > 250)
+	if (speed_val < 0 || speed_val > 250)
 	{
 		speed(0, 0);
 		return;
 	}
+	else if (speed_val < FRICTION_OFFSET)
+	{
+		speed_val += FRICTION_OFFSET;
+	}
 
-	speed(speed_val, -(speed_val - FRICTION_OFFSET));
+	speed(speed_val, -1*(speed_val - FRICTION_OFFSET));
 }
 
+void turnLeftAnalog(int32_t speed_val, int32_t maxSpeed)
+{
+	turningLeft = 1;
+	turningRight = 0;
+	stopped = 0;
+	movingStraight = 0;
+
+	if (speed_val < 0)
+	{
+		speed(0, 0);
+		return;
+	}
+	else if (speed_val > (maxSpeed - FRICTION_OFFSET))
+	{
+		speed_val = max_speed;
+	}
+	else
+	{
+		speed_val += FRICTION_OFFSET;
+	}
+
+	speed(-1*speed_val, speed_val - FRICTION_OFFSET);
+}
+
+void turnRightAnalog(int32_t speed_val, int32_t maxSpeed)
+{
+	turningRight = 1;
+	turningLeft = 0;
+	stopped = 0;
+	movingStraight = 0;
+
+	if (speed_val < 0)
+	{
+		speed(0, 0);
+		return;
+	}
+	else if (speed_val > (maxSpeed - FRICTION_OFFSET))
+	{
+		speed_val = max_speed;
+	}
+	else
+	{
+		speed_val += FRICTION_OFFSET;
+	}
+
+	speed(speed_val, -1*(speed_val - FRICTION_OFFSET));
+}
+
+// This function ensures that DOLL-E starts slowing down from (-LEFT_LIMIT - TURN_SPEED) to (-LEFT_LIMIT - 1). If the angle is
+// after a certain threshold, DOLL-E caps at the maximum speed of TURN_SPEED.
+void turnLeftCapped(int16_t inputAngle)
+{
+	turningLeft = 1;
+	turningRight = 0;
+	stopped = 0;
+	movingStraight = 0;
+	int32_t speed_val = 0;
+
+		// Cap the turning speed at TURN_SPEED (TURN_SPEED is the maximum speed it could achieve while turning)
+		if (inputAngle >= (-1*LEFT_LIMIT))
+		{
+			speed(0, 0);
+			return;
+		}
+		else if (inputAngle >= ((-1*LEFT_LIMIT) - TURN_SPEED))
+		{
+			speed_val = (-1*LEFT_LIMIT) - inputAngle;
+
+			// Take into account the friction offset.
+			if (speed_val < FRICTION_OFFSET)
+				speed_val += FRICTION_OFFSET;
+		}
+		else
+		{
+			speed_val = TURN_SPEED;
+		}
+
+	speed(-1*speed_val, speed_val - FRICTION_OFFSET);
+}
+
+// This function ensures that DOLL-E starts slowing down from (RIGHT_LIMIT - TURN_SPEED) to (RIGHT_LIMIT - 1). If the angle is
+// after a certain threshold, DOLL-E caps at the maximum speed of TURN_SPEED.
+void turnRightCapped(int16_t inputAngle) // Assumes the angle is positive (absolute)
+{
+	turningRight = 1;
+	turningLeft = 0;
+	stopped = 0;
+	movingStraight = 0;
+	int32_t speed_val = 0;
+
+	// Cap the turning speed at TURN_SPEED (TURN_SPEED is the maximum speed it could achieve while turning)
+	if (inputAngle >= RIGHT_LIMIT)
+	{
+		speed(0, 0);
+		return;
+	}
+	else if (inputAngle >= (RIGHT_LIMIT - TURN_SPEED))
+	{
+		speed_val = RIGHT_LIMIT - inputAngle;
+
+		// Take into account the friction offset.
+		if (speed_val < FRICTION_OFFSET)
+			speed_val += FRICTION_OFFSET;
+	}
+	else
+	{
+		speed_val = TURN_SPEED;
+	}
+
+	speed(speed_val, -1*(speed_val - FRICTION_OFFSET));
+}
+
+
+
 // Input: Left wheel absolute speed
+// NOTE: Do not use it with analog speed. Assumes that if the speed is larger than max, there is an issue with the system.
 void goStraight(int32_t speed_val)
 {
 	turningLeft = 0;
@@ -494,53 +616,65 @@ void goStraight(int32_t speed_val)
 	stopped = 0;
 	movingStraight = 1;
 
-	// Less than FRICTION_OFFSET is there because the friction on the left wheel is more.
-	if (speed_val <= FRICTION_OFFSET || speed_val > 250)
+	// Speed value shouldn't equal 0 when going forward. if it does, make sure to make both wheels 0.
+	if (speed_val <= 0 || speed_val > (250 - FRICTION_OFFSET))
 	{
 		speed(0, 0);
 		return;
 	}
 
+	speed_val += FRICTION_OFFSET;
+
 	speed(speed_val, speed_val - FRICTION_OFFSET);
 }
 
-void goStraightAnalog(int32_t speed_val)
+// Maximum speed is maxSpeed.
+void goStraightAnalog(int32_t speed_val, int32_t maxSpeed)
 {
 	turningLeft = 0;
 	turningRight = 0;
 	stopped = 0;
 	movingStraight = 1;
 
-	// Less than FRICTION_OFFSET is there because the friction on the left wheel is more.
-	if (speed_val <= FRICTION_OFFSET)
+	// Speed value shouldn't equal 0 when going forward. if it does, make sure to make both wheels 0.
+	if (speed_val <= 0)
 	{
 		speed(0, 0);
 		return;
 	}
-	else if (speed_val > MAX_FORWARD_SPEED) // Theoretically, max speed_val is (400 - HCSR_DIST_RANGE)
+	else if (speed_val > (maxSpeed - FRICTION_OFFSET)) // Theoretically, max speed_val is (400 - HCSR_DIST_RANGE)
 	{
-		speed_val = MAX_FORWARD_SPEED;
+		speed_val = maxSpeed;
+	}
+	else
+	{
+		speed_val += FRICTION_OFFSET;
 	}
 
 	speed(speed_val, speed_val - FRICTION_OFFSET);
 }
 
-void goStraightAnalogCapped(int32_t speed_val)
+// After the cap value, the speed is set to FORWARD_SPEED. So, the maximum speed is FORWARD_SPEED, not capVal.
+void goStraightAnalogCapped(int32_t speed_val, int32_t capVal)
 {
 	turningLeft = 0;
 	turningRight = 0;
 	stopped = 0;
 	movingStraight = 1;
 
-	// Less than FRICTION_OFFSET is there because the friction on the left wheel is more.
-	if (speed_val <= FRICTION_OFFSET)
+	// Speed value shouldn't equal 0 when going forward. if it does, make sure to make both wheels 0.
+	if (speed_val <= 0)
 	{
 		speed(0, 0);
 		return;
 	}
-	else if (speed_val > 15) // Theoretically, max speed_val is (400 - HCSR_DIST_RANGE)
+	else if (speed_val > (capVal - FRICTION_OFFSET))
 	{
 		speed_val = FORWARD_SPEED;
+	}
+	else
+	{
+		speed_val += FRICTION_OFFSET;
 	}
 
 	speed(speed_val, speed_val - FRICTION_OFFSET);
@@ -589,14 +723,15 @@ void makeDecision()
 //		  }
 		  if (ISLEFT(angle) && !turningLeft) // if (ISLEFT(angle)  && !turningLeft)
 		  {
-			   turnLeft(TURN_SPEED);
-//			  turnLeft(ANGLE_TO_SPEED(angle));
+			   turnLeft(TURN_SPEED);		   // Turn in a constant speed
+//			  turnLeft(ANGLE_TO_SPEED(angle)); // Turn in spectrum
+//			   turnLeftCapped(ABS(angle));	   // Turn in limited spectrum (TURN_SPEED is the maximum speed)
 		  }
 		  else if (ISRIGHT(angle) && !turningRight) // else if (ISRIGHT(angle) && !turningRight)
 		  {
-			   turnRight(TURN_SPEED);
-
-//			  turnRight(ANGLE_TO_SPEED(angle));
+			   turnRight(TURN_SPEED); 			// Turn in a constant speed
+//			  turnRight(ANGLE_TO_SPEED(angle));	// Turn in spectrum
+//			   turnRightCapped(ABS(angle)); 	// Turn in limited spectrum (TURN_SPEED is the maximum speed)
 		  }
 	  }
 	  else if (stop)
@@ -615,7 +750,9 @@ void makeDecision()
 		  if (!movingStraight)
 			  goStraight(FORWARD_SPEED);
 
-//		  goStraightAnalogCapped(HCSR_DIST_TO_SPEED(HCSR_Distance_1, HCSR_Distance_2, HCSR_Distance_3));
+		  // goStraightAnalog(HCSR_DIST_TO_SPEED(HCSR_Distance_1, HCSR_Distance_2, HCSR_Distance_3), MAX_FORWARD_SPEED);
+
+//		  goStraightAnalogCapped(HCSR_DIST_TO_SPEED(HCSR_Distance_1, HCSR_Distance_2, HCSR_Distance_3), FRICTION_OFFSET + 5);
 	  }
 
 #if AOA_EN
@@ -684,7 +821,6 @@ int main(void)
   MX_GPIO_Init();
   MX_DMA_Init();
   MX_USART1_UART_Init();
-  MX_TIM14_Init();
   MX_TIM17_Init();
   MX_TIM1_Init();
   MX_TIM2_Init();
@@ -785,7 +921,13 @@ void SystemClock_Config(void)
   RCC_OscInitStruct.HSIState = RCC_HSI_ON;
   RCC_OscInitStruct.HSIDiv = RCC_HSI_DIV1;
   RCC_OscInitStruct.HSICalibrationValue = RCC_HSICALIBRATION_DEFAULT;
-  RCC_OscInitStruct.PLL.PLLState = RCC_PLL_NONE;
+  RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
+  RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSI;
+  RCC_OscInitStruct.PLL.PLLM = RCC_PLLM_DIV1;
+  RCC_OscInitStruct.PLL.PLLN = 8;
+  RCC_OscInitStruct.PLL.PLLP = RCC_PLLP_DIV2;
+  RCC_OscInitStruct.PLL.PLLQ = RCC_PLLQ_DIV2;
+  RCC_OscInitStruct.PLL.PLLR = RCC_PLLR_DIV2;
   if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK)
   {
     Error_Handler();
@@ -795,11 +937,11 @@ void SystemClock_Config(void)
   */
   RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_HCLK|RCC_CLOCKTYPE_SYSCLK
                               |RCC_CLOCKTYPE_PCLK1;
-  RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_HSI;
+  RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_PLLCLK;
   RCC_ClkInitStruct.AHBCLKDivider = RCC_SYSCLK_DIV1;
   RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV1;
 
-  if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_0) != HAL_OK)
+  if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_2) != HAL_OK)
   {
     Error_Handler();
   }
@@ -824,7 +966,7 @@ static void MX_TIM1_Init(void)
 
   /* USER CODE END TIM1_Init 1 */
   htim1.Instance = TIM1;
-  htim1.Init.Prescaler = 16-1;
+  htim1.Init.Prescaler = 64-1;
   htim1.Init.CounterMode = TIM_COUNTERMODE_UP;
   htim1.Init.Period = 65535;
   htim1.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
@@ -874,7 +1016,7 @@ static void MX_TIM2_Init(void)
 
   /* USER CODE END TIM2_Init 1 */
   htim2.Instance = TIM2;
-  htim2.Init.Prescaler = 16-1;
+  htim2.Init.Prescaler = 64-1;
   htim2.Init.CounterMode = TIM_COUNTERMODE_UP;
   htim2.Init.Period = 65535;
   htim2.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
@@ -923,7 +1065,7 @@ static void MX_TIM3_Init(void)
 
   /* USER CODE END TIM3_Init 1 */
   htim3.Instance = TIM3;
-  htim3.Init.Prescaler = 32;
+  htim3.Init.Prescaler = 128-1;
   htim3.Init.CounterMode = TIM_COUNTERMODE_UP;
   htim3.Init.Period = 10000-1;
   htim3.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
@@ -967,37 +1109,6 @@ static void MX_TIM3_Init(void)
 }
 
 /**
-  * @brief TIM14 Initialization Function
-  * @param None
-  * @retval None
-  */
-static void MX_TIM14_Init(void)
-{
-
-  /* USER CODE BEGIN TIM14_Init 0 */
-
-  /* USER CODE END TIM14_Init 0 */
-
-  /* USER CODE BEGIN TIM14_Init 1 */
-
-  /* USER CODE END TIM14_Init 1 */
-  htim14.Instance = TIM14;
-  htim14.Init.Prescaler = 16-1;
-  htim14.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim14.Init.Period = 65535;
-  htim14.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
-  htim14.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
-  if (HAL_TIM_Base_Init(&htim14) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  /* USER CODE BEGIN TIM14_Init 2 */
-
-  /* USER CODE END TIM14_Init 2 */
-
-}
-
-/**
   * @brief TIM17 Initialization Function
   * @param None
   * @retval None
@@ -1015,7 +1126,7 @@ static void MX_TIM17_Init(void)
 
   /* USER CODE END TIM17_Init 1 */
   htim17.Instance = TIM17;
-  htim17.Init.Prescaler = 16-1;
+  htim17.Init.Prescaler = 64-1;
   htim17.Init.CounterMode = TIM_COUNTERMODE_UP;
   htim17.Init.Period = 65535;
   htim17.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
