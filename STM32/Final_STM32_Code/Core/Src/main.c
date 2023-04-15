@@ -82,7 +82,8 @@ static void MX_TIM3_Init(void);
 #define TRIG3_PIN				GPIO_PIN_1
 #define TRIG3_PORT				GPIOA
 
-#define STOP_RANGE_HCSR			70 				// if HC-SR04 sees this (in cms), stop the motors
+#define STOP_RANGE_HCSR			30 				// Forward movement stop. If HC-SR04 sees this or less (in cms), stop the motors
+#define STOP_RANGE_TURN			25				// Turning is stopped when the HC-SR04 sees this or less in cms
 
 #define HCSR1_timer_handler		htim1
 #define HCSR1_TIMER_CHANNEL		TIM_CHANNEL_1
@@ -139,6 +140,7 @@ static void MX_TIM3_Init(void);
 #define ISLEFT(_angle) (((_angle) > LEFT_LIMIT) && ((_angle) < 0))
 #define ISRIGHT(_angle) (((_angle) >= 0) && ((_angle) < RIGHT_LIMIT))
 #define ISSTOP(_hcsr_dist_1, _hcsr_dist_2, _hcsr_dist_3) (((_hcsr_dist_1) < STOP_RANGE_HCSR) || ((_hcsr_dist_2) < STOP_RANGE_HCSR) || ((_hcsr_dist_3) < STOP_RANGE_HCSR))
+#define IS_STOP_TURN(_hcsr_dist_1, _hcsr_dist_2, _hcsr_dist_3) (((_hcsr_dist_1) < STOP_RANGE_TURN) || ((_hcsr_dist_2) < STOP_RANGE_TURN) || ((_hcsr_dist_3) < STOP_RANGE_TURN))
 
 // AoA Enables (change to 0 to disable. Else, 1.)
 #define AOA_EN	1
@@ -151,9 +153,9 @@ static void MX_TIM3_Init(void);
 #define aoa_buffer			rx
 
 // Motor Controller PWM defines
-#define FRICTION_OFFSET			8
+#define FRICTION_OFFSET			7
 // Right motor has different friction than the left one. This accounts for that.
-#define MAX_TURN_SPEED			RIGHT_LIMIT
+#define MAX_TURN_SPEED			RIGHT_LIMIT + 30
 // This is the maximum motor speed we want to reach. More than this could be too fast.
 #define TURN_SPEED				55		// Turning speed if it is a constant.
 #define FORWARD_SPEED			100		// Moving forward speed if it is a constant.
@@ -365,12 +367,14 @@ void HAL_UART_TxCpltCallback(UART_HandleTypeDef *huart)
 // (around 0 in this case), then DOLL-E will constantly move left and right. This buffer will act based on
 // previous movements. This will make the new angle output relative the recent angle of the tag.
 #define ANGLE_BUFF_SIZE 5
-int16_t angle_buff[ANGLE_BUFF_SIZE] = {179}; // Ring buffer (replaces the oldest angle with the new output at each iteration)
+int16_t angle_buff[ANGLE_BUFF_SIZE] = {179, 179, 179, 179, 179}; // Ring buffer (replaces the oldest angle with the new output at each iteration)
 uint8_t angle_buff_index = 0;
+uint16_t angle_buff_total = 179 * ANGLE_BUFF_SIZE;
 
 // UART receive callback: gets called as soon as STM32 receives through UART
 void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
 {
+	// THE NORMAL CODE BEGIN ********************
 	// parse angle from rx buffer
 	temp_angle = ((int16_t *)rx)[0];
 
@@ -385,6 +389,7 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
 		turn = 0;
 		angle = 179;
 	}
+	// THE NORMAL CODE END **********************
 
 	// NOTE FOR SELF: if communication stops while turning or moving forward, make an error handling to stop motors.
 	// Maybe a timer of 5 seconds -> if within 5 seconds no UART receive, then stop motors
@@ -394,26 +399,29 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
 // EDGE CASE WHERE IF THE USER IS STANDING IN THE THRESHOLD OF LEFT AND RIGHT (AROUND 0 IN OUR CASE), THEN
 // DOLL-E WILL KEEP MOVING LEFT AND RIGHT WITHOUT BEING ABLE TO FACE THE USER. IF YOU UNCOMMENT THIS BOX,
 // MAKE SURE TO COMMENT THE LINE WHERE "angle" IS BEING ASSIGNED.
-/**************************************************************************************************************
-
-	// insert angle into angle buffer
-	angle_buff[angle_buff_index] = IS_VALID_ANGLE(temp_angle) ? temp_angle : 179; // if not valid, stop DOLL-E
-	angle_buff_index = (angle_buff_index + 1) % ANGLE_BUFF_SIZE; // update in a ring buffer style
-
-	// calculate output angle based on recent relative angle of the tag
-	uint8_t i = 0;
-	int16_t recent_angles_sum = 0;
-	for (i = 0; i < ANGLE_BUFF_SIZE; i++)
-	{
-		recent_angles_sum += angle_buff[i];
-	}
-
-	// Round angle efficiently based on its range [-179, 179]. It is ensured through error
-	// handling that the average angle calculated will be within the valid angle range.
-	// Source of the rounding formula: https://www.cs.cmu.edu/~rbd/papers/cmj-float-to-int.html
-	angle = (((int16_t) (((float)recent_angles_sum/ANGLE_BUFF_SIZE) + 179.5f)) - 179);
-
-**************************************************************************************************************/
+//
+//	// insert angle into angle buffer
+//	temp_angle = ((int16_t *)rx)[0];
+//	int16_t val_replaced = angle_buff[angle_buff_index]; // Store the value to be replaced before it is gone.
+//
+//	if (IS_VALID_ANGLE(temp_angle))
+//	{
+//		angle_buff[angle_buff_index] = temp_angle;
+//	}
+//	else
+//	{
+//		stop = 1;
+//		turn = 0;
+//		angle_buff[angle_buff_index] = 179;
+//	}
+//
+//	angle_buff_total = angle_buff_total - val_replaced + angle_buff[angle_buff_index]; // Update the sum of angle buff
+//	angle_buff_index = (angle_buff_index + 1) % ANGLE_BUFF_SIZE; // update the index in a ring buffer style
+//
+//	// Round angle efficiently based on its range [-179, 179]. It is ensured through error
+//	// handling that the average angle calculated will be within the valid angle range.
+//	// Source of the rounding formula: https://www.cs.cmu.edu/~rbd/papers/cmj-float-to-int.html
+//	angle = (((int16_t) (((float)angle_buff_total/ANGLE_BUFF_SIZE) + 179.5f)) - 179);
 }
 
 // Callback for when you have a constant timer interrupt after a while (e.g. Distance sensor reading every 0.5 seconds)
@@ -507,7 +515,7 @@ void turnLeftAnalog(int32_t speed_val, int32_t maxSpeed)
 	}
 	else if (speed_val > (maxSpeed - FRICTION_OFFSET))
 	{
-		speed_val = max_speed;
+		speed_val = maxSpeed;
 	}
 	else
 	{
@@ -531,7 +539,7 @@ void turnRightAnalog(int32_t speed_val, int32_t maxSpeed)
 	}
 	else if (speed_val > (maxSpeed - FRICTION_OFFSET))
 	{
-		speed_val = max_speed;
+		speed_val = maxSpeed;
 	}
 	else
 	{
@@ -557,13 +565,9 @@ void turnLeftCapped(int16_t inputAngle)
 			speed(0, 0);
 			return;
 		}
-		else if (inputAngle >= ((-1*LEFT_LIMIT) - TURN_SPEED))
+		else if (inputAngle >= ((-1*LEFT_LIMIT) - TURN_SPEED + FRICTION_OFFSET))
 		{
-			speed_val = (-1*LEFT_LIMIT) - inputAngle;
-
-			// Take into account the friction offset.
-			if (speed_val < FRICTION_OFFSET)
-				speed_val += FRICTION_OFFSET;
+			speed_val = (-1*LEFT_LIMIT) - inputAngle + FRICTION_OFFSET;
 		}
 		else
 		{
@@ -589,13 +593,9 @@ void turnRightCapped(int16_t inputAngle) // Assumes the angle is positive (absol
 		speed(0, 0);
 		return;
 	}
-	else if (inputAngle >= (RIGHT_LIMIT - TURN_SPEED))
+	else if (inputAngle >= (RIGHT_LIMIT - TURN_SPEED + FRICTION_OFFSET))
 	{
-		speed_val = RIGHT_LIMIT - inputAngle;
-
-		// Take into account the friction offset.
-		if (speed_val < FRICTION_OFFSET)
-			speed_val += FRICTION_OFFSET;
+		speed_val = RIGHT_LIMIT - inputAngle + FRICTION_OFFSET;
 	}
 	else
 	{
@@ -655,6 +655,7 @@ void goStraightAnalog(int32_t speed_val, int32_t maxSpeed)
 }
 
 // After the cap value, the speed is set to FORWARD_SPEED. So, the maximum speed is FORWARD_SPEED, not capVal.
+// How many ticks after the STOP_RANGE_HCSR would you like to go in FORWARD_SPEED? That is capVal.
 void goStraightAnalogCapped(int32_t speed_val, int32_t capVal)
 {
 	turningLeft = 0;
@@ -668,7 +669,7 @@ void goStraightAnalogCapped(int32_t speed_val, int32_t capVal)
 		speed(0, 0);
 		return;
 	}
-	else if (speed_val > (capVal - FRICTION_OFFSET))
+	else if (speed_val > capVal)
 	{
 		speed_val = FORWARD_SPEED;
 	}
@@ -704,34 +705,34 @@ void makeDecision()
 {
 	 // Update the state.
 	  stop = ISSTOP(HCSR_Distance_1, HCSR_Distance_2, HCSR_Distance_3);
-//	  stopTurn = IS_STOP_TURN(HCSR_Distance_1, HCSR_Distance_2, HCSR_Distance_3);
+	  stopTurn = IS_STOP_TURN(HCSR_Distance_1, HCSR_Distance_2, HCSR_Distance_3);
 	  turn = ISTURN(angle);
 
 	  // Interpret the results to send motor commands.
 	  if (turn)
 	  {
-//		  if (stopTurn)
-//		  {
-//		  if (!stopped)
-//		  {
-//			  speed(0, 0);
-//			  turningLeft = 0;
-//			  turningRight = 0;
-//			  stopped = 1;
-//			  movingStraight = 0;
-//		  }
-//		  }
-		  if (ISLEFT(angle) && !turningLeft) // if (ISLEFT(angle)  && !turningLeft)
+		  if (stopTurn)
 		  {
-			   turnLeft(TURN_SPEED);		   // Turn in a constant speed
-//			  turnLeft(ANGLE_TO_SPEED(angle)); // Turn in spectrum
-//			   turnLeftCapped(ABS(angle));	   // Turn in limited spectrum (TURN_SPEED is the maximum speed)
+			  if (!stopped)
+			  {
+				  speed(0, 0);
+				  turningLeft = 0;
+				  turningRight = 0;
+				  stopped = 1;
+				  movingStraight = 0;
+			  }
 		  }
-		  else if (ISRIGHT(angle) && !turningRight) // else if (ISRIGHT(angle) && !turningRight)
+		  else if (ISLEFT(angle))// && !turningLeft) // if (ISLEFT(angle)  && !turningLeft)
 		  {
-			   turnRight(TURN_SPEED); 			// Turn in a constant speed
-//			  turnRight(ANGLE_TO_SPEED(angle));	// Turn in spectrum
-//			   turnRightCapped(ABS(angle)); 	// Turn in limited spectrum (TURN_SPEED is the maximum speed)
+//			   turnLeft(TURN_SPEED);		   							// Turn in a constant speed
+			   turnLeftAnalog(ANGLE_TO_SPEED(angle), MAX_TURN_SPEED); 	// Turn in spectrum
+//			   turnLeftCapped(ABS(angle));	   							// Turn in limited spectrum (TURN_SPEED is the maximum speed)
+		  }
+		  else if (ISRIGHT(angle))// && !turningRight) // else if (ISRIGHT(angle) && !turningRight)
+		  {
+//			   turnRight(TURN_SPEED); 									// Turn in a constant speed
+			   turnRightAnalog(ANGLE_TO_SPEED(angle), MAX_TURN_SPEED);	// Turn in spectrum, maximum speed is second argument
+//			   turnRightCapped(ABS(angle)); 							// Turn in limited spectrum (TURN_SPEED is the maximum speed)
 		  }
 	  }
 	  else if (stop)
@@ -747,12 +748,16 @@ void makeDecision()
 	  }
 	  else if (!stop)
 	  {
-		  if (!movingStraight)
-			  goStraight(FORWARD_SPEED);
+		  // TO DO: HAVE AN ARRAY OF HISTORY FOR EACH DISTANCE SENSOR. HAVE THEIR LAST 5 OR 3 VALUES IN THE ARRAY. EACH DISTANCE
+		  // SENSOR'S CURRENT VALUE WILL BE THE AVERAGE OF THEIR LAST 3 OR 5 VALUES. THIS MIGHT NOT NECESSARILY HELP BECAUSE OF
+		  // THE WAY OUR FEET MOVE. BUT TRY IT IF YOU HAVE TIME.
 
-		  // goStraightAnalog(HCSR_DIST_TO_SPEED(HCSR_Distance_1, HCSR_Distance_2, HCSR_Distance_3), MAX_FORWARD_SPEED);
+//		  if (!movingStraight)
+//			  goStraight(FORWARD_SPEED);
 
-//		  goStraightAnalogCapped(HCSR_DIST_TO_SPEED(HCSR_Distance_1, HCSR_Distance_2, HCSR_Distance_3), FRICTION_OFFSET + 5);
+//		   goStraightAnalog(HCSR_DIST_TO_SPEED(HCSR_Distance_1, HCSR_Distance_2, HCSR_Distance_3), MAX_FORWARD_SPEED);
+
+		  goStraightAnalogCapped(HCSR_DIST_TO_SPEED(HCSR_Distance_1, HCSR_Distance_2, HCSR_Distance_3), 40);
 	  }
 
 #if AOA_EN
