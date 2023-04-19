@@ -82,7 +82,7 @@ static void MX_TIM3_Init(void);
 #define TRIG3_PIN				GPIO_PIN_1
 #define TRIG3_PORT				GPIOA
 
-#define STOP_RANGE_HCSR			30 				// Forward movement stop. If HC-SR04 sees this or less (in cms), stop the motors
+#define STOP_RANGE_HCSR			70 				// Forward movement stop. If HC-SR04 sees this or less (in cms), stop the motors
 #define STOP_RANGE_TURN			25				// Turning is stopped when the HC-SR04 sees this or less in cms
 
 #define HCSR1_timer_handler		htim1
@@ -153,12 +153,12 @@ static void MX_TIM3_Init(void);
 #define aoa_buffer			rx
 
 // Motor Controller PWM defines
-#define FRICTION_OFFSET			7
+#define FRICTION_OFFSET			5
 // Right motor has different friction than the left one. This accounts for that.
 #define MAX_TURN_SPEED			RIGHT_LIMIT + 30
 // This is the maximum motor speed we want to reach. More than this could be too fast.
 #define TURN_SPEED				55		// Turning speed if it is a constant.
-#define FORWARD_SPEED			100		// Moving forward speed if it is a constant.
+#define FORWARD_SPEED			140		// Moving forward speed if it is a constant.
 #define MAX_FORWARD_SPEED		160		// This speed is the maximum speed that DOLL-E will move forward.
 
 // Operation Macros
@@ -680,6 +680,35 @@ void goStraightAnalogCapped(int32_t speed_val, int32_t capVal)
 
 	speed(speed_val, speed_val - FRICTION_OFFSET);
 }
+
+void goStraightWithAdjustments(int32_t speed_val, int16_t angle)
+{
+	turningLeft = 0;
+	turningRight = 0;
+	stopped = 0;
+	movingStraight = 1;
+
+	if (speed_val <= FRICTION_OFFSET || speed_val > 250)
+	{
+		speed(0, 0);
+		return;
+	}
+
+	if (angle < 0 && angle > -170)
+	{
+		int u = angle + 179;
+		speed(speed_val - (int32_t)(2 * u), speed_val);
+	}
+	else if (angle >= 0 && angle < 170)
+	{
+		int u = -1 * (angle - 179);
+		speed(speed_val, speed_val - (int32_t)(2 * u));
+	}
+	else
+	{
+		speed(speed_val, speed_val - FRICTION_OFFSET);
+	}
+}
 /*********************************************************************************
 					   Motor Controller Functions End
 **********************************************************************************/
@@ -757,7 +786,8 @@ void makeDecision()
 
 //		   goStraightAnalog(HCSR_DIST_TO_SPEED(HCSR_Distance_1, HCSR_Distance_2, HCSR_Distance_3), MAX_FORWARD_SPEED);
 
-		  goStraightAnalogCapped(HCSR_DIST_TO_SPEED(HCSR_Distance_1, HCSR_Distance_2, HCSR_Distance_3), 40);
+//		  goStraightAnalogCapped(HCSR_DIST_TO_SPEED(HCSR_Distance_1, HCSR_Distance_2, HCSR_Distance_3), 40);
+		  goStraightWithAdjustments(FORWARD_SPEED ,angle);
 	  }
 
 #if AOA_EN
